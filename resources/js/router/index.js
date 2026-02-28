@@ -33,6 +33,10 @@ const routes = [
     component: Dashboard,
     meta: { requiresAuth: true }
   },
+  {
+    path: '/dashboard',
+    redirect: '/'
+  },
   // Orders
   {
     path: '/orders',

@@ -47,10 +47,10 @@
             <select v-model="form.items[idx].product_id" required @change="updateProductPrice(idx)">
               <option value="">Select product...</option>
               <option v-for="product in products" :key="product.id" :value="product.id">
-                {{ product.name }} (₱{{ product.price }}/{{ product.unit }})
+                {{ product.name }} (R: ₱{{ product.pricing?.[0]?.retail_price || product.base_price }} | W: ₱{{ product.pricing?.[0]?.wholesale_price || product.base_price }})
               </option>
             </select>
-            <input v-model.number="form.items[idx].quantity" type="number" placeholder="Qty" min="1" required />
+            <input v-model.number="form.items[idx].quantity" type="number" placeholder="Qty (kg)" min="0.01" step="0.01" required />
             <input v-model.number="form.items[idx].unit_price" type="number" placeholder="Unit Price" min="0" step="0.01" required />
             <p class="product-subtotal">₱{{ (form.items[idx].quantity * form.items[idx].unit_price).toFixed(2) }}</p>
             <button type="button" @click="removeItem(idx)" class="btn-delete">✕</button>
@@ -93,7 +93,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
 
@@ -146,9 +146,31 @@ const updateProductPrice = (idx) => {
   const productId = form.value.items[idx].product_id;
   const product = products.value.find(p => p.id == productId);
   if (product) {
-    form.value.items[idx].unit_price = product.price;
+    // Use pricing data based on order type
+    const pricing = product.pricing?.[0]; // Get active pricing
+    if (pricing) {
+      if (form.value.type === 'wholesale') {
+        form.value.items[idx].unit_price = pricing.wholesale_price || product.base_price;
+      } else {
+        form.value.items[idx].unit_price = pricing.retail_price || product.base_price;
+      }
+    } else {
+      form.value.items[idx].unit_price = product.base_price;
+    }
   }
 };
+
+const updateAllPrices = () => {
+  form.value.items.forEach((item, idx) => {
+    if (item.product_id) {
+      updateProductPrice(idx);
+    }
+  });
+};
+
+watch(() => form.value.type, () => {
+  updateAllPrices();
+});
 
 const calculateSubtotal = () => {
   return form.value.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);

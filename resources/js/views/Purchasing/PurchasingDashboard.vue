@@ -87,7 +87,7 @@
           <tr v-for="po in purchaseOrders" :key="po.id">
             <td class="po-number">#{{ po.id }}</td>
             <td>{{ po.supplier?.name || 'N/A' }}</td>
-            <td class="center">{{ po.purchaseOrderItems?.length || 0 }}</td>
+              <td class="center">{{ po.purchase_order_items?.length || 0 }}</td>
             <td class="amount">₱{{ parseFloat(po.total_amount).toFixed(2) }}</td>
             <td>
               <span class="status" :class="po.status">
@@ -214,7 +214,7 @@
             </div>
           </div>
           <h3>Items</h3>
-          <table v-if="viewingPO.purchaseOrderItems?.length" class="items-table">
+          <table v-if="viewingPO.purchase_order_items?.length" class="items-table">
             <thead>
               <tr>
                 <th>Product</th>
@@ -224,7 +224,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in viewingPO.purchaseOrderItems" :key="item.id">
+                              <tr v-for="item in viewingPO.purchase_order_items" :key="item.id">
                 <td>{{ item.product?.name || 'N/A' }}</td>
                 <td class="center">{{ item.quantity }}</td>
                 <td class="amount">₱{{ parseFloat(item.unit_cost).toFixed(2) }}</td>
@@ -316,7 +316,7 @@ const totalValue = computed(() => {
 
 // Methods
 const goToDashboard = () => {
-  router.push('/dashboard');
+  router.push('/');
 };
 
 const goToCreatePO = () => {

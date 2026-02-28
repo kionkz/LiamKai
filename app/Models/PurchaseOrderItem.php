@@ -18,6 +18,8 @@ class PurchaseOrderItem extends Model
     ];
 
     protected $casts = [
+        'quantity' => 'decimal:2',
+        'received_quantity' => 'decimal:2',
         'purchase_price' => 'decimal:2',
         'subtotal' => 'decimal:2',
     ];

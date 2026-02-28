@@ -79,7 +79,7 @@
                     </select>
                   </td>
                   <td>
-                    <input v-model.number="item.quantity" type="number" min="1" required class="form-input number" />
+                    <input v-model.number="item.quantity" type="number" min="0.01" step="0.01" required class="form-input number" />
                   </td>
                   <td>
                     <input v-model.number="item.unit_cost" type="number" min="0" step="0.01" placeholder="₱0.00" class="form-input number" />
@@ -241,7 +241,7 @@ const submitPO = async () => {
 
   // Check all items have product and cost
   for (const item of formData.value.items) {
-    if (!item.product_id || item.quantity < 1 || item.unit_cost <= 0) {
+    if (!item.product_id || item.quantity < 0.01 || item.unit_cost <= 0) {
       errorMessage.value = 'Please fill all product fields';
       return;
     }
@@ -256,7 +256,7 @@ const submitPO = async () => {
       notes: formData.value.notes || null,
       items: formData.value.items.map(item => ({
         product_id: parseInt(item.product_id),
-        quantity: parseInt(item.quantity),
+        quantity: parseFloat(item.quantity),
         unit_cost: parseFloat(item.unit_cost)
       }))
     };

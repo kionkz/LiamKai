@@ -18,6 +18,12 @@ class Inventory extends Model
         'last_restock_date',
     ];
 
+    protected $casts = [
+        'quantity' => 'decimal:2',
+        'quantity_on_hand' => 'decimal:2',
+        'reorder_point' => 'decimal:2',
+    ];
+
     // Relationships
     public function product(): BelongsTo
     {

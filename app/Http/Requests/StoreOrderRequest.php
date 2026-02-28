@@ -23,9 +23,11 @@ class StoreOrderRequest extends FormRequest
     {
         return [
             'customer_id' => 'required|exists:customers,id',
-            'order_date' => 'required|date',
+            'type' => 'sometimes|in:retail,wholesale',
+            'order_type' => 'sometimes|in:retail,wholesale',
+            'delivery_address' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
-            'items' => 'required|array|min:1', // At least one item
+            'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|numeric|min:0.01',
             'items.*.unit_price' => 'required|numeric|min:0',

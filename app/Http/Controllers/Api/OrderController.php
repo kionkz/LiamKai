@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreOrderRequest;
 use App\Http\Requests\UpdateOrderRequest;
+use App\Models\Customer;
+use App\Models\Delivery;
+use App\Models\Inventory;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Models\Inventory;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
@@ -19,14 +22,18 @@ class OrderController extends Controller
     public function index(): JsonResponse
     {
         try {
-            $orders = Order::with('customer', 'orderItems.product', 'payments')
+            $orders = Order::with('customer', 'orderItems.product', 'payments', 'delivery')
                 ->orderBy('created_at', 'desc')
                 ->paginate(15);
-            
+
+            $formattedOrders = $orders->getCollection()
+                ->map(fn (Order $order) => $this->formatOrder($order))
+                ->values();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Orders retrieved successfully',
-                'data' => $orders->items(),
+                'data' => $formattedOrders,
                 'pagination' => [
                     'total' => $orders->total(),
                     'current_page' => $orders->currentPage(),
@@ -50,29 +57,32 @@ class OrderController extends Controller
     {
         try {
             DB::beginTransaction();
-            
-            // Create the order
+
+            $validated = $request->validated();
+            $customer = Customer::findOrFail($validated['customer_id']);
+            $orderType = $validated['order_type'] ?? $validated['type'] ?? 'retail';
+
             $order = Order::create([
-                'customer_id' => $request->customer_id,
-                'order_date' => $request->order_date,
-                'notes' => $request->notes ?? null,
-                'status' => 'pending',
+                'customer_id' => $validated['customer_id'],
+                'order_type' => $orderType,
+                'notes' => $validated['notes'] ?? null,
+                'payment_status' => 'pending',
+                'delivery_status' => 'pending',
+                'delivery_address' => $validated['delivery_address'] ?? $customer->address ?? 'No address provided',
                 'total_amount' => 0,
-                'balance_due' => 0,
+                'outstanding_balance' => 0,
             ]);
-            
+
             $totalAmount = 0;
-            
-            // Create order items and deduct inventory
-            foreach ($request->items as $item) {
+
+            foreach ($validated['items'] as $item) {
                 $inventory = Inventory::where('product_id', $item['product_id'])->firstOrFail();
-                
-                // Check stock availability
-                if ($inventory->quantity_on_hand < $item['quantity']) {
-                    throw new \Exception("Insufficient stock for product ID {$item['product_id']}. Available: {$inventory->quantity_on_hand}");
+                $availableQuantity = (float) ($inventory->quantity ?? $inventory->quantity_on_hand ?? 0);
+
+                if ($availableQuantity < (float) $item['quantity']) {
+                    throw new \Exception("Insufficient stock for product ID {$item['product_id']}. Available: {$availableQuantity}");
                 }
-                
-                // Create order item
+
                 OrderItem::create([
                     'order_id' => $order->id,
                     'product_id' => $item['product_id'],
@@ -80,35 +90,46 @@ class OrderController extends Controller
                     'unit_price' => $item['unit_price'],
                     'subtotal' => $item['quantity'] * $item['unit_price'],
                 ]);
-                
-                // Deduct from inventory
-                $inventory->decrement('quantity_on_hand', $item['quantity']);
-                
-                // Record stock movement (outbound)
+
+                $inventory->decrement('quantity', $item['quantity']);
+
                 $inventory->stockMovements()->create([
-                    'movement_type' => 'stock_out',
+                    'type' => 'stock_out',
                     'quantity' => $item['quantity'],
-                    'reason' => "Order #{$order->id}",
-                    'reference_id' => $order->id,
+                    'reference' => "ORDER-{$order->id}",
+                    'notes' => "Stock deducted for order #{$order->id}",
                 ]);
-                
+
                 $totalAmount += $item['quantity'] * $item['unit_price'];
             }
-            
-            // Update order totals
+
+            [$scheduledDelivery, $deliveryStatus] = $this->determineDeliverySchedule(Carbon::now());
+
+            Delivery::create([
+                'order_id' => $order->id,
+                'employee_id' => null,
+                'status' => 'pending',
+                'scheduled_delivery' => $scheduledDelivery,
+                'delivery_address' => $order->delivery_address,
+                'notes' => 'Auto-created when order was placed',
+            ]);
+
             $order->update([
                 'total_amount' => $totalAmount,
-                'balance_due' => $totalAmount,
+                'outstanding_balance' => $totalAmount,
+                'delivery_status' => $deliveryStatus,
+                'delivery_date' => $scheduledDelivery->toDateString(),
             ]);
-            
+
             DB::commit();
-            
+
+            $order->load('customer', 'orderItems.product', 'payments', 'delivery');
+
             return response()->json([
                 'success' => true,
                 'message' => 'Order created successfully',
-                'data' => $order->load('customer', 'orderItems.product')
+                'data' => $this->formatOrder($order)
             ], 201);
-            
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
@@ -127,10 +148,10 @@ class OrderController extends Controller
         try {
             $order = Order::with('customer', 'orderItems.product', 'payments', 'delivery')
                 ->findOrFail($id);
-            
+
             return response()->json([
                 'success' => true,
-                'data' => $order
+                'data' => $this->formatOrder($order)
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -147,18 +168,18 @@ class OrderController extends Controller
     }
 
     /**
-     * Update order details (date, notes, status)
+     * Update order details
      */
     public function update(UpdateOrderRequest $request, string $id): JsonResponse
     {
         try {
             $order = Order::findOrFail($id);
             $order->update($request->validated());
-            
+
             return response()->json([
                 'success' => true,
                 'message' => 'Order updated successfully',
-                'data' => $order->load('customer', 'orderItems', 'payments')
+                'data' => $this->formatOrder($order->load('customer', 'orderItems.product', 'payments', 'delivery'))
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -181,33 +202,35 @@ class OrderController extends Controller
     {
         try {
             DB::beginTransaction();
-            
-            $order = Order::findOrFail($id);
-            
-            if ($order->status === 'delivered' || $order->status === 'cancelled') {
+
+            $order = Order::with('orderItems', 'delivery')->findOrFail($id);
+
+            if (in_array($order->delivery_status, ['delivered', 'cancelled'], true)) {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot cancel {$order->status} order"
+                    'message' => "Cannot cancel {$order->delivery_status} order"
                 ], 422);
             }
-            
-            // Restore inventory for all items
+
             foreach ($order->orderItems as $item) {
                 $inventory = Inventory::where('product_id', $item->product_id)->firstOrFail();
-                $inventory->increment('quantity_on_hand', $item->quantity);
-                
-                // Record stock movement (return)
+                $inventory->increment('quantity', $item->quantity);
+
                 $inventory->stockMovements()->create([
-                    'movement_type' => 'stock_in',
+                    'type' => 'stock_in',
                     'quantity' => $item->quantity,
-                    'reason' => "Order #{$order->id} cancelled",
-                    'reference_id' => $order->id,
+                    'reference' => "ORDER-{$order->id}",
+                    'notes' => "Stock restored for cancelled order #{$order->id}",
                 ]);
             }
-            
-            $order->update(['status' => 'cancelled']);
+
+            if ($order->delivery) {
+                $order->delivery->update(['status' => 'failed']);
+            }
+
+            $order->update(['delivery_status' => 'cancelled']);
             DB::commit();
-            
+
             return response()->json([
                 'success' => true,
                 'message' => 'Order cancelled and inventory restored'
@@ -220,5 +243,26 @@ class OrderController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function determineDeliverySchedule(Carbon $orderTime): array
+    {
+        $cutoffTime = $orderTime->copy()->setTime(15, 0, 0);
+
+        if ($orderTime->lessThanOrEqualTo($cutoffTime)) {
+            return [$orderTime->copy()->setTime(18, 0, 0), 'processing'];
+        }
+
+        return [$orderTime->copy()->addDay()->setTime(9, 0, 0), 'pending'];
+    }
+
+    private function formatOrder(Order $order): array
+    {
+        $formatted = $order->toArray();
+        $formatted['type'] = $order->order_type;
+        $formatted['status'] = $order->delivery_status;
+        $formatted['items'] = $formatted['order_items'] ?? [];
+
+        return $formatted;
     }
 }

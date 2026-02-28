@@ -18,6 +18,10 @@ class StockMovement extends Model
         'notes',
     ];
 
+    protected $casts = [
+        'quantity' => 'decimal:2',
+    ];
+
     // Relationships
     public function product(): BelongsTo
     {
