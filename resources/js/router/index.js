@@ -149,9 +149,19 @@ const router = createRouter({
   routes
 });
 
+// Flag to track if auth has been checked
+let authChecked = false;
+
 // Navigation guard
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
+  
+  // Ensure auth is checked on first load
+  if (!authChecked) {
+    authStore.checkAuth();
+    authChecked = true;
+  }
+  
   const isAuthenticated = authStore.isAuthenticated;
 
   if (to.meta.requiresAuth && !isAuthenticated) {

@@ -3,17 +3,22 @@ import { ref, computed } from 'vue';
 import api from '../api';
 
 export const useAuthStore = defineStore('auth', () => {
-  const user = ref(null);
+  const savedUser = localStorage.getItem('user');
+  const user = ref(savedUser ? JSON.parse(savedUser) : null);
   const token = ref(localStorage.getItem('authToken'));
 
   const isAuthenticated = computed(() => !!token.value && !!user.value);
 
   const login = async (email, password) => {
     try {
+      console.log('authStore: Attempting login for', email);
+      
       const response = await api.post('/login', {
         email: email,
         password: password
       });
+      
+      console.log('authStore: Login response received:', response.data);
 
       token.value = response.data.token;
       user.value = response.data.user;
@@ -22,9 +27,12 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem('user', JSON.stringify(user.value));
 
       api.defaults.headers.common['Authorization'] = `Bearer ${token.value}`;
+      
+      console.log('authStore: Login successful, token and user stored');
 
       return { success: true };
     } catch (error) {
+      console.error('authStore: Login error:', error.response?.data || error.message);
       return {
         success: false,
         message: error.response?.data?.message || 'Login failed'

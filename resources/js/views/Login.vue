@@ -43,7 +43,7 @@
       </form>
 
       <p class="demo-info">
-        Demo: test@example.com password123
+        Demo: test@gmail.com / pass123
       </p>
     </div>
   </div>
@@ -68,13 +68,19 @@ const error = ref('');
 const handleLogin = async () => {
   error.value = '';
   loading.value = true;
+  
+  console.log('Login attempt with:', form.value.email);
 
   const result = await authStore.login(form.value.email, form.value.password);
+  
+  console.log('Login result:', result);
 
   if (result.success) {
+    console.log('Login successful, redirecting to home');
     router.push('/');
   } else {
     error.value = result.message || 'Login failed';
+    console.error('Login failed:', error.value);
   }
 
   loading.value = false;
