@@ -8,48 +8,48 @@
 
       <ul class="nav-menu">
         <li class="menu-group">
-          <button class="group-head" type="button" @click="toggleGroup('customer')">
+          <button class="group-head" :class="{ active: activeMenu === 'customer-group' }" type="button" @click="toggleAndActivate('customer', 'customer-group')">
             <span class="menu-icon">🛒</span>
             <span>Customer Orders</span>
             <span class="group-caret">{{ customerOrdersOpen ? '▾' : '▸' }}</span>
           </button>
           <div v-if="customerOrdersOpen" class="sub-links">
-            <router-link to="/customers" :class="{ active: $route.path.startsWith('/customers') }">Customer Profile</router-link>
-            <router-link to="/pos" :class="{ active: $route.path === '/pos' }">Walk-In</router-link>
-            <router-link to="/orders" :class="{ active: $route.path.startsWith('/orders') }">Payment</router-link>
+            <router-link to="/customers" :class="{ active: activeMenu === 'customer-profile' }" @click="setActiveMenu('customer-profile')">Customer Profile</router-link>
+            <router-link to="/pos" :class="{ active: activeMenu === 'walk-in' }" @click="setActiveMenu('walk-in')">Walk-In</router-link>
+            <router-link to="/orders" :class="{ active: activeMenu === 'payment' }" @click="setActiveMenu('payment')">Payment</router-link>
           </div>
         </li>
         <li>
-          <router-link to="/deliveries" :class="{ active: $route.path.includes('deliveries') }">
+          <router-link to="/deliveries" :class="{ active: activeMenu === 'logistics' }" @click="setActiveMenu('logistics')">
             <span class="menu-icon">🚚</span>
             <span class="tab-label">Logistics</span>
           </router-link>
         </li>
         <li class="menu-group">
-          <button class="group-head" type="button" @click="toggleGroup('inventory')">
+          <button class="group-head" :class="{ active: activeMenu === 'inventory-group' }" type="button" @click="toggleAndActivate('inventory', 'inventory-group')">
             <span class="menu-icon">🏬</span>
             <span>Inventory</span>
             <span class="group-caret">{{ inventoryOpen ? '▾' : '▸' }}</span>
           </button>
           <div v-if="inventoryOpen" class="sub-links">
-            <router-link to="/inventory" :class="{ active: $route.path === '/inventory' }">Current Stock</router-link>
-            <router-link to="/inventory/movements" :class="{ active: $route.path === '/inventory/movements' }">Stock Movement</router-link>
+            <router-link to="/inventory" :class="{ active: activeMenu === 'current-stock' }" @click="setActiveMenu('current-stock')">Current Stock</router-link>
+            <router-link to="/inventory/movements" :class="{ active: activeMenu === 'stock-movement' }" @click="setActiveMenu('stock-movement')">Stock Movement</router-link>
           </div>
         </li>
         <li class="menu-group">
-          <button class="group-head" type="button" @click="toggleGroup('purchasing')">
+          <button class="group-head" :class="{ active: activeMenu === 'purchasing-group' }" type="button" @click="toggleAndActivate('purchasing', 'purchasing-group')">
             <span class="menu-icon">👜</span>
             <span>Purchasing</span>
             <span class="group-caret">{{ purchasingOpen ? '▾' : '▸' }}</span>
           </button>
           <div v-if="purchasingOpen" class="sub-links">
-            <router-link to="/purchasing" :class="{ active: isPurchasingProfileRoute }">Suppliers Profile</router-link>
-            <router-link to="/purchasing/payments" :class="{ active: $route.path === '/purchasing/payments' }">Payment</router-link>
-            <router-link to="/reports" :class="{ active: $route.path === '/reports' }">Sales Report</router-link>
+            <router-link to="/purchasing" :class="{ active: activeMenu === 'suppliers-profile' }" @click="setActiveMenu('suppliers-profile')">Suppliers Profile</router-link>
+            <router-link to="/purchasing/payments" :class="{ active: activeMenu === 'purchasing-payment' }" @click="setActiveMenu('purchasing-payment')">Payment</router-link>
+            <router-link to="/reports" :class="{ active: activeMenu === 'sales-report' }" @click="setActiveMenu('sales-report')">Sales Report</router-link>
           </div>
         </li>
         <li>
-          <router-link to="/employees" :class="{ active: $route.path === '/employees' }">
+          <router-link to="/employees" :class="{ active: activeMenu === 'employees' }" @click="setActiveMenu('employees')">
             <span class="menu-icon">👤</span>
             <span class="tab-label">Employee</span>
           </router-link>
@@ -98,6 +98,7 @@ const currentTime = ref('');
 const customerOrdersOpen = ref(false);
 const inventoryOpen = ref(false);
 const purchasingOpen = ref(false);
+const activeMenu = ref('');
 
 const displayName = computed(() => authStore.user?.name || authStore.user?.username || 'User');
 const displayRole = computed(() => authStore.user?.role || 'Owner');
@@ -147,6 +148,65 @@ const toggleGroup = (group) => {
   openOnlyGroup(group);
 };
 
+const setActiveMenu = (menu) => {
+  activeMenu.value = menu;
+};
+
+const toggleAndActivate = (group, menu) => {
+  setActiveMenu(menu);
+  toggleGroup(group);
+};
+
+const syncActiveMenuByRoute = () => {
+  if (route.path.startsWith('/customers')) {
+    activeMenu.value = 'customer-profile';
+    return;
+  }
+  if (route.path === '/pos') {
+    activeMenu.value = 'walk-in';
+    return;
+  }
+  if (route.path.startsWith('/orders')) {
+    activeMenu.value = 'payment';
+    return;
+  }
+  if (route.path.startsWith('/deliveries')) {
+    activeMenu.value = 'logistics';
+    return;
+  }
+  if (route.path === '/inventory') {
+    activeMenu.value = 'current-stock';
+    return;
+  }
+  if (route.path === '/inventory/movements') {
+    activeMenu.value = 'stock-movement';
+    return;
+  }
+  if (route.path === '/purchasing/payments') {
+    activeMenu.value = 'purchasing-payment';
+    return;
+  }
+  if (route.path === '/reports') {
+    activeMenu.value = 'sales-report';
+    return;
+  }
+  if (
+    route.path === '/purchasing' ||
+    route.path.startsWith('/purchasing/create') ||
+    route.path.startsWith('/purchasing/edit') ||
+    route.path.startsWith('/purchasing/receive')
+  ) {
+    activeMenu.value = 'suppliers-profile';
+    return;
+  }
+  if (route.path === '/employees') {
+    activeMenu.value = 'employees';
+    return;
+  }
+
+  activeMenu.value = '';
+};
+
 const syncGroupByRoute = () => {
   if (isCustomerOrdersRoute.value) {
     openOnlyGroup('customer');
@@ -194,6 +254,7 @@ const logout = () => {
 
 onMounted(() => {
   syncGroupByRoute();
+  syncActiveMenuByRoute();
 
   setInterval(() => {
     const now = new Date();
@@ -203,6 +264,7 @@ onMounted(() => {
 
 watch(() => route.path, () => {
   syncGroupByRoute();
+  syncActiveMenuByRoute();
 });
 </script>
 
@@ -317,6 +379,23 @@ watch(() => route.path, () => {
   font-size: 17px;
   padding: 8px 10px;
   border-radius: 6px;
+  position: relative;
+}
+
+.group-head.active {
+  background-color: rgba(184, 201, 224, 0.28);
+  color: white;
+}
+
+.group-head.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: #e57c2a;
 }
 
 .group-head:hover {
