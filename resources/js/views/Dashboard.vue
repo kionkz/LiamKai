@@ -19,12 +19,6 @@
             <router-link to="/orders" :class="{ active: activeMenu === 'payment' }" @click="setActiveMenu('payment')">Payment</router-link>
           </div>
         </li>
-        <li>
-          <router-link to="/deliveries" :class="{ active: activeMenu === 'logistics' }" @click="setActiveMenu('logistics')">
-            <span class="menu-icon">🚚</span>
-            <span class="tab-label">Logistics</span>
-          </router-link>
-        </li>
         <li class="menu-group">
           <button class="group-head" :class="{ active: activeMenu === 'inventory-group' }" type="button" @click="toggleAndActivate('inventory', 'inventory-group')">
             <span class="menu-icon">🏬</span>
@@ -47,6 +41,12 @@
             <router-link to="/purchasing/payments" :class="{ active: activeMenu === 'purchasing-payment' }" @click="setActiveMenu('purchasing-payment')">Payment</router-link>
             <router-link to="/reports" :class="{ active: activeMenu === 'sales-report' }" @click="setActiveMenu('sales-report')">Sales Report</router-link>
           </div>
+        </li>
+        <li>
+          <router-link to="/deliveries" :class="{ active: activeMenu === 'logistics' }" @click="setActiveMenu('logistics')">
+            <span class="menu-icon">🚚</span>
+            <span class="tab-label">Logistics</span>
+          </router-link>
         </li>
         <li>
           <router-link to="/employees" :class="{ active: activeMenu === 'employees' }" @click="setActiveMenu('employees')">
