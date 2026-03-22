@@ -71,6 +71,12 @@
             </tr>
           </tbody>
         </table>
+
+        <div class="pagination" v-if="pagination.last_page > 1">
+          <button class="btn btn-secondary" @click="changePage(pagination.current_page - 1)" :disabled="pagination.current_page === 1">Previous</button>
+          <span class="page-info">Page {{ pagination.current_page }} of {{ pagination.last_page }}</span>
+          <button class="btn btn-secondary" @click="changePage(pagination.current_page + 1)" :disabled="pagination.current_page === pagination.last_page">Next</button>
+        </div>
       </div>
     </div>
 
@@ -269,6 +275,7 @@ const updating = ref(false);
 const categories = ['All', 'Tuna', 'Pompano', 'Seabass', 'Salmon', 'Squid', 'Shell'];
 
 const products = ref([]);
+const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
 
 const showDetailsModal = ref(false);
 const productDetails = ref(null);
@@ -299,13 +306,16 @@ const newProductForm = ref({
   wholesale_price: null,
 });
 
-const fetchProducts = async () => {
+const fetchProducts = async (page = 1) => {
   loading.value = true;
   error.value = '';
   try {
     // Use inventory API which includes stock movements and product relation
-    const response = await api.get('/inventory');
+    const response = await api.get('/inventory', {
+      params: { page, per_page: pagination.value.per_page }
+    });
     if (response.data.success) {
+      pagination.value = response.data.pagination || pagination.value;
       // response.data.data is a list of inventory records with 'product' and 'stockMovements'
       products.value = response.data.data.map(inv => {
         const p = inv.product || {};
@@ -348,6 +358,11 @@ const fetchProducts = async () => {
   }
 };
 
+const changePage = (page) => {
+  if (page < 1 || page > pagination.value.last_page) return;
+  fetchProducts(page);
+};
+
 const openStockUpdateModal = (product) => {
   selectedProduct.value = product;
   adjustmentAmount.value = 0;
@@ -378,7 +393,7 @@ const submitStockUpdate = async () => {
 
     const response = await api.put(`/inventory/${selectedProduct.value.id}`, updateData);
     if (response.data.success) {
-      await fetchProducts();
+      await fetchProducts(pagination.value.current_page);
       closeStockModal();
     } else {
       alert(response.data.message || 'Failed to update stock');
@@ -460,24 +475,7 @@ const createProduct = async () => {
 
     const res = await api.post('/products', payload);
     if (res.data.success) {
-      // Add the newly created product to the list with inventory details
-      const newProduct = res.data.data;
-      const productData = {
-        id: newProduct.id,
-        name: newProduct.name,
-        category: newProduct.category,
-        sku: newProduct.sku || `SKU-${newProduct.id}`,
-        quantity: newProduct.inventory?.quantity || 0,
-        reorder_level: newProduct.inventory?.reorder_point || 5,
-        retail_price: (newProduct.pricing && newProduct.pricing[0]) ? newProduct.pricing[0].retail_price : newProduct.base_price || 0,
-        wholesale_price: (newProduct.pricing && newProduct.pricing[0]) ? newProduct.pricing[0].wholesale_price : null,
-        price: (newProduct.pricing && newProduct.pricing[0]) ? newProduct.pricing[0].retail_price : newProduct.base_price || 0,
-        last_movement_at: null,
-        active: false,
-        rawInventory: newProduct.inventory,
-      };
-      
-      products.value.push(productData);
+      await fetchProducts(pagination.value.current_page);
       closeAddProductModal();
     } else {
       alert(res.data.message || 'Failed to create product');
@@ -490,7 +488,7 @@ const createProduct = async () => {
 };
 
 onMounted(() => {
-  fetchProducts();
+  fetchProducts(1);
 });
 </script>
 
@@ -608,6 +606,21 @@ onMounted(() => {
 
 .table-container {
   overflow-x: auto;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px;
+  background: #fff;
+  border-top: 1px solid #eef1f5;
+}
+
+.page-info {
+  font-size: 13px;
+  color: #5f6b7a;
 }
 
 .data-table {

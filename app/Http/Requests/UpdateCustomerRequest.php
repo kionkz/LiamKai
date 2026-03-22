@@ -24,7 +24,7 @@ class UpdateCustomerRequest extends FormRequest
         return [
             'name' => 'sometimes|required|string|max:255',
             'email' => 'sometimes|required|email|unique:customers,email,' . $this->route('customer'),
-            'phone' => 'sometimes|required|string|max:20',
+            'phone' => ['sometimes', 'required', 'regex:/^\+639\d{9}$/'],
             'address' => 'sometimes|required|string',
             'type' => 'sometimes|required|in:retail,wholesale',
             // For updates: credit_limit may be provided for wholesale (capped), and must be absent for retail
@@ -37,6 +37,32 @@ class UpdateCustomerRequest extends FormRequest
                 'required_if:type,wholesale',
                 'prohibited_if:type,retail',
             ],
+        ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (!$this->has('phone')) {
+            return;
+        }
+
+        $digits = preg_replace('/\D+/', '', (string) $this->input('phone'));
+
+        if (str_starts_with($digits, '09') && strlen($digits) === 11) {
+            $digits = '63' . substr($digits, 1);
+        } elseif (str_starts_with($digits, '9') && strlen($digits) === 10) {
+            $digits = '63' . $digits;
+        }
+
+        $this->merge([
+            'phone' => str_starts_with($digits, '63') ? '+' . $digits : $this->input('phone'),
+        ]);
+    }
+
+    public function messages(): array
+    {
+        return [
+            'phone.regex' => 'Phone number must be in Philippine format (+639XXXXXXXXX).',
         ];
     }
 }

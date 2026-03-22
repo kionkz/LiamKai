@@ -56,13 +56,30 @@
               </option>
             </select>
             <div class="quantity-input-wrap">
-              <input v-model.number="form.items[idx].quantity" type="number" placeholder="Qty" min="0.01" step="0.01" required />
+              <input
+                v-model.number="form.items[idx].quantity"
+                type="number"
+                placeholder="Qty"
+                :min="form.type === 'wholesale' ? 10 : 0.01"
+                :max="form.type === 'retail' ? 9.99 : null"
+                step="0.01"
+                required
+                :class="{ 'stock-error': hasInsufficientStock(idx) }"
+              />
               <span class="unit-suffix">kg</span>
             </div>
             <input v-model.number="form.items[idx].unit_price" type="number" placeholder="Unit Price" min="0" step="0.01" required />
             <p class="product-subtotal">₱{{ (form.items[idx].quantity * form.items[idx].unit_price).toFixed(2) }}</p>
             <button type="button" @click="removeItem(idx)" class="btn-delete">✕</button>
+            <p v-if="hasInsufficientStock(idx)" class="stock-warning">
+              Stock not enough. Available: {{ getAvailableStock(form.items[idx].product_id).toFixed(2) }} kg
+            </p>
           </div>
+          <p class="type-rule-hint">
+            {{ form.type === 'retail'
+              ? 'Retail orders must be below 10kg per item.'
+              : 'Wholesale orders must be 10kg or more per item.' }}
+          </p>
           <button type="button" @click="addProduct" class="btn btn-secondary">+ Add Product</button>
         </div>
 
@@ -87,6 +104,13 @@
         <div class="form-group">
           <label>Notes</label>
           <textarea v-model="form.notes" placeholder="Additional notes..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <input v-model="form.is_urgent" type="checkbox" />
+            Mark as urgent delivery (schedule today up to 5:00 PM)
+          </label>
         </div>
 
         <div class="form-actions">
@@ -119,6 +143,7 @@ const form = ref({
   customer_id: '',
   type: 'retail',
   items: [{ product_id: '', quantity: 1, unit_price: 0 }],
+  is_urgent: false,
   notes: ''
 });
 
@@ -151,7 +176,8 @@ const loadFormData = async () => {
 };
 
 const addProduct = () => {
-  form.value.items.push({ product_id: '', quantity: 1, unit_price: 0 });
+  const defaultQty = form.value.type === 'wholesale' ? 10 : 1;
+  form.value.items.push({ product_id: '', quantity: defaultQty, unit_price: 0 });
 };
 
 const removeItem = (idx) => {
@@ -184,7 +210,58 @@ const updateAllPrices = () => {
   });
 };
 
+const getAvailableStock = (productId) => {
+  const product = products.value.find(p => p.id == productId);
+  if (!product) return 0;
+
+  const quantity = Number(product.inventory?.quantity ?? 0);
+  const quantityOnHand = Number(product.inventory?.quantity_on_hand ?? quantity);
+  return quantityOnHand;
+};
+
+const hasInsufficientStock = (idx) => {
+  const item = form.value.items[idx];
+  if (!item?.product_id || !item?.quantity) return false;
+  return Number(item.quantity) > getAvailableStock(item.product_id);
+};
+
+const hasAnyInsufficientStock = () => {
+  return form.value.items.some((_, idx) => hasInsufficientStock(idx));
+};
+
+const hasTypeQuantityViolation = (item) => {
+  const qty = Number(item?.quantity || 0);
+  if (form.value.type === 'retail') {
+    return qty >= 10;
+  }
+  return qty < 10;
+};
+
+const getTypeQuantityError = () => {
+  const violatingIndex = form.value.items.findIndex((item) => hasTypeQuantityViolation(item));
+  if (violatingIndex === -1) {
+    return '';
+  }
+
+  const label = form.value.type === 'retail'
+    ? 'Retail orders must be below 10kg per item.'
+    : 'Wholesale orders must be 10kg or more per item.';
+
+  return `Item ${violatingIndex + 1}: ${label}`;
+};
+
 watch(() => form.value.type, () => {
+  form.value.items = form.value.items.map((item) => {
+    const qty = Number(item.quantity || 0);
+    if (form.value.type === 'wholesale' && qty < 10) {
+      return { ...item, quantity: 10 };
+    }
+    if (form.value.type === 'retail' && qty >= 10) {
+      return { ...item, quantity: 9.99 };
+    }
+    return item;
+  });
+
   updateAllPrices();
 });
 
@@ -201,6 +278,17 @@ const calculateTotal = () => {
 };
 
 const submitOrder = async () => {
+  if (hasAnyInsufficientStock()) {
+    alert('Stock not enough for one or more products. Please reduce quantity.');
+    return;
+  }
+
+  const quantityRuleError = getTypeQuantityError();
+  if (quantityRuleError) {
+    alert(quantityRuleError);
+    return;
+  }
+
   submitting.value = true;
   try {
     const orderData = {
@@ -401,6 +489,27 @@ onMounted(() => {
 .quantity-input-wrap input {
   width: 100%;
   padding-right: 34px;
+}
+
+.quantity-input-wrap input.stock-error {
+  border-color: #dc3545;
+  background-color: #fff4f4;
+  color: #b42318;
+}
+
+.stock-warning {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #b42318;
+  font-weight: 600;
+}
+
+.type-rule-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #5f6b7a;
+  font-weight: 600;
 }
 
 .unit-suffix {

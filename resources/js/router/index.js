@@ -6,6 +6,7 @@ const AppLayout = () => import('../views/Dashboard.vue');
 const DashboardHome = () => import('../views/Dashboard/Index.vue');
 const OrdersList = () => import('../views/Orders/OrdersList.vue');
 const CreateOrder = () => import('../views/Orders/CreateOrder.vue');
+const OrderDetail = () => import('../views/Orders/OrderDetail.vue');
 const CustomerProfile = () => import('../views/Customers/CustomerProfile.vue');
 const CustomerList = () => import('../views/Customers/CustomerList.vue');
 const POSScreen = () => import('../views/POS/POSScreen.vue');
@@ -49,6 +50,11 @@ const routes = [
         path: 'orders/create',
         name: 'CreateOrder',
         component: CreateOrder,
+      },
+      {
+        path: 'orders/:id',
+        name: 'OrderDetail',
+        component: OrderDetail,
       },
       {
         path: 'customers',

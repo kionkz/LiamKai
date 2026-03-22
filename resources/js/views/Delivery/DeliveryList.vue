@@ -75,6 +75,12 @@
             </tr>
           </tbody>
         </table>
+
+        <div class="pagination" v-if="pagination.last_page > 1">
+          <button class="filter-btn" @click="changePage(pagination.current_page - 1)" :disabled="pagination.current_page === 1">Previous</button>
+          <span class="page-info">Page {{ pagination.current_page }} of {{ pagination.last_page }}</span>
+          <button class="filter-btn" @click="changePage(pagination.current_page + 1)" :disabled="pagination.current_page === pagination.last_page">Next</button>
+        </div>
       </div>
     </section>
   </div>
@@ -92,6 +98,7 @@ const searchTerm = ref('');
 const selectedStatus = ref('all');
 const appliedSearch = ref('');
 const appliedStatus = ref('all');
+const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
 
 const formatDate = (value) => {
   if (!value) return '--';
@@ -119,13 +126,16 @@ const parseOrderNumber = (orderNo) => {
   return numericPart ? Number(numericPart[0]) : Number.MAX_SAFE_INTEGER;
 };
 
-const loadDeliveries = async () => {
+const loadDeliveries = async (page = 1) => {
   loading.value = true;
   loadError.value = '';
 
   try {
-    const response = await api.get('/deliveries');
+    const response = await api.get('/deliveries', {
+      params: { page, per_page: pagination.value.per_page }
+    });
     if (response.data?.success) {
+      pagination.value = response.data.pagination || pagination.value;
       deliveries.value = (response.data.data || []).map((row) => ({
         id: row.id,
         orderNo: row.order?.order_number || `ORD${String(row.order_id || row.id).padStart(3, '0')}`,
@@ -145,6 +155,11 @@ const loadDeliveries = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const changePage = (page) => {
+  if (page < 1 || page > pagination.value.last_page) return;
+  loadDeliveries(page);
 };
 
 const applyFilter = () => {
@@ -366,6 +381,20 @@ td {
   text-align: center;
   color: #73809a;
   padding: 18px;
+}
+
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid #e7ebf2;
+}
+
+.page-info {
+  font-size: 13px;
+  color: #607089;
 }
 
 @media (max-width: 900px) {

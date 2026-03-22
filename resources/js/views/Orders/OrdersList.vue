@@ -1,40 +1,37 @@
 <template>
   <div class="orders-container">
     <div class="header-section">
-      <div class="header-left">
-        <h1>Orders Management</h1>
-      </div>
+      <h1>Orders Management</h1>
+    </div>
+
+    <div class="actions-bar">
       <button @click="showCreateOrderModal = true" class="btn btn-primary">+ Create Order</button>
+      <button @click="openEditModal" class="btn btn-secondary">Edit</button>
+      <button @click="openSummaryModal" class="btn btn-secondary">View</button>
+      <button @click="openPaymentModal" class="btn btn-secondary">Payment</button>
+      <button @click="openDeleteConfirm" class="btn btn-danger">Archive</button>
     </div>
 
     <div class="filters">
       <input v-model="searchQuery" type="text" placeholder="Search order #, customer name..." />
       <select v-model="filterStatus">
-        <option value="">All Status</option>
+        <option value="">All Payment Status</option>
         <option value="pending">Pending</option>
+        <option value="partial">Partial</option>
         <option value="paid">Paid</option>
-        <option value="delivered">Delivered</option>
-      </select>
-      <select v-model="filterType">
-        <option value="">All Types</option>
-        <option value="retail">Retail</option>
-        <option value="wholesale">Wholesale</option>
       </select>
       <button @click="fetchOrders" class="btn btn-secondary">Search</button>
     </div>
 
-    <!-- Loading State -->
     <div v-if="loading" class="loading-state">
       <p>Loading orders...</p>
     </div>
 
-    <!-- Error State -->
     <div v-else-if="error" class="error-state">
       <p>{{ error }}</p>
       <button @click="fetchOrders" class="btn btn-secondary">Retry</button>
     </div>
 
-    <!-- Orders Table -->
     <div v-else class="table-container">
       <table class="data-table">
         <thead>
@@ -43,52 +40,152 @@
             <th>Customer</th>
             <th>Type</th>
             <th>Amount</th>
-            <th>Status</th>
+            <th>Payment</th>
+            <th>Delivery</th>
             <th>Date</th>
-            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="filteredOrders.length === 0">
             <td colspan="7" class="no-data">No orders found matching your criteria.</td>
           </tr>
-          <tr v-for="order in filteredOrders" :key="order.id">
+          <tr
+            v-for="order in filteredOrders"
+            :key="order.id"
+            @click="selectOrder(order)"
+            :class="{ 'selected-row': selectedOrderId === order.id }"
+          >
             <td>#{{ order.id.toString().padStart(4, '0') }}</td>
             <td>{{ order.customer?.name || 'N/A' }}</td>
-            <td><span class="badge" :class="order.type">{{ order.type === 'retail' ? 'Retail' : 'Wholesale' }}</span></td>
-            <td>₱{{ order.total_amount?.toLocaleString() || '0' }}</td>
             <td>
-              <span class="status" :class="order.status">
-                {{ order.status }}
+              <span class="badge" :class="order.type">
+                {{ order.type === 'retail' ? 'Retail' : 'Wholesale' }}
               </span>
             </td>
+            <td>₱{{ Number(order.total_amount || 0).toLocaleString() }}</td>
+            <td><span class="status" :class="order.status">{{ order.status }}</span></td>
+            <td><span class="status" :class="order.delivery_status">{{ order.delivery_status || 'pending' }}</span></td>
             <td>{{ new Date(order.created_at).toLocaleDateString() }}</td>
-            <td>
-              <router-link :to="`/orders/${order.id}`" class="btn-small">View</router-link>
-              <button @click="editOrder(order)" class="btn-small">Edit</button>
-              <button @click="deleteOrder(order)" class="btn-small btn-danger">Delete</button>
-            </td>
           </tr>
         </tbody>
       </table>
+
+      <div class="pagination" v-if="pagination.last_page > 1">
+        <button class="btn btn-secondary" @click="changePage(pagination.current_page - 1)" :disabled="pagination.current_page === 1">
+          Previous
+        </button>
+        <span class="page-info">Page {{ pagination.current_page }} of {{ pagination.last_page }}</span>
+        <button class="btn btn-secondary" @click="changePage(pagination.current_page + 1)" :disabled="pagination.current_page === pagination.last_page">
+          Next
+        </button>
+      </div>
     </div>
 
-    <!-- Delete Confirmation Modal -->
+    <div v-if="showSummaryModal" class="modal-overlay" @click="showSummaryModal = false">
+      <div class="modal-content" @click.stop>
+        <h3>Order Summary</h3>
+        <div v-if="selectedOrder" class="summary-block">
+          <p><strong>Order #:</strong> {{ selectedOrder.id }}</p>
+          <p><strong>Customer:</strong> {{ selectedOrder.customer?.name || 'N/A' }}</p>
+          <p><strong>Type:</strong> {{ selectedOrder.type }}</p>
+          <p><strong>Total:</strong> ₱{{ Number(selectedOrder.total_amount || 0).toFixed(2) }}</p>
+          <p><strong>Outstanding:</strong> ₱{{ Number(selectedOrder.outstanding_balance || 0).toFixed(2) }}</p>
+          <p><strong>Payment Status:</strong> {{ selectedOrder.status }}</p>
+          <p><strong>Delivery Status:</strong> {{ selectedOrder.delivery_status || 'pending' }}</p>
+        </div>
+        <div class="modal-actions">
+          <button @click="showSummaryModal = false" class="btn btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showEditModal" class="modal-overlay" @click="showEditModal = false">
+      <div class="modal-content" @click.stop>
+        <h3>Edit Selected Order</h3>
+        <form @submit.prevent="saveOrderEdit">
+          <div class="form-group">
+            <label>Order Type</label>
+            <select v-model="editForm.order_type">
+              <option value="retail">Retail</option>
+              <option value="wholesale">Wholesale</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Delivery Address</label>
+            <input v-model="editForm.delivery_address" type="text" />
+          </div>
+          <div class="form-group">
+            <label>Delivery Date</label>
+            <input v-model="editForm.delivery_date" type="date" />
+          </div>
+          <div class="form-group">
+            <label>Notes</label>
+            <textarea v-model="editForm.notes" rows="3"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" @click="showEditModal = false" class="btn btn-secondary">Cancel</button>
+            <button type="submit" :disabled="savingEdit" class="btn btn-primary">{{ savingEdit ? 'Saving...' : 'Save' }}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div v-if="showPaymentModal" class="modal-overlay" @click="showPaymentModal = false">
+      <div class="modal-content" @click.stop>
+        <h3>Payment</h3>
+        <p v-if="selectedOrder">
+          Remaining balance: ₱{{ Number(selectedOrder.outstanding_balance || 0).toFixed(2) }}
+        </p>
+        <form @submit.prevent="submitPayment">
+          <div class="form-group">
+            <label>Amount</label>
+            <input v-model.number="paymentForm.amount" type="number" step="0.01" min="0.01" required />
+          </div>
+          <div class="form-group">
+            <label>Date</label>
+            <input v-model="paymentForm.payment_date" type="date" required />
+          </div>
+          <div class="form-group">
+            <label>Payment Method</label>
+            <select v-model="paymentForm.payment_method">
+              <option value="cash">Cash</option>
+              <option value="check">Check</option>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="credit">Credit</option>
+            </select>
+          </div>
+          <div v-if="paymentForm.payment_method === 'check'" class="form-group">
+            <label>Deposit Date</label>
+            <input v-model="paymentForm.deposit_date" type="date" required />
+          </div>
+          <div v-if="paymentForm.payment_method === 'check'" class="form-group">
+            <label>Check From</label>
+            <input v-model="paymentForm.check_from" type="text" placeholder="Issuer name" required />
+          </div>
+          <p class="auto-ref-note">Reference number is automatically generated for every payment.</p>
+          <div class="modal-actions">
+            <button type="button" @click="showPaymentModal = false" class="btn btn-secondary">Cancel</button>
+            <button type="submit" :disabled="submittingPayment" class="btn btn-primary">
+              {{ submittingPayment ? 'Saving...' : 'Save Payment' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div v-if="showDeleteConfirm" class="modal-overlay" @click="showDeleteConfirm = false">
       <div class="modal-content small-modal" @click.stop>
-        <h3>Confirm Delete</h3>
-        <p>Are you sure you want to delete Order #{{ orderToDelete?.id.toString().padStart(4, '0') }}?</p>
-        <p class="warning">This action cannot be undone.</p>
+        <h3>Confirm Archive</h3>
+        <p>Archive selected order #{{ selectedOrder?.id?.toString().padStart(4, '0') }}?</p>
         <div class="modal-actions">
           <button @click="showDeleteConfirm = false" class="btn btn-secondary">Cancel</button>
           <button @click="confirmDelete" :disabled="deleting" class="btn btn-danger">
-            {{ deleting ? 'Deleting...' : 'Delete Order' }}
+            {{ deleting ? 'Archiving...' : 'Archive Order' }}
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Create Order Modal -->
     <div v-if="showCreateOrderModal" class="modal-overlay create-order-overlay" @click="showCreateOrderModal = false">
       <div class="modal-content create-order-modal" @click.stop>
         <CreateOrder :isModal="true" @close="showCreateOrderModal = false" @created="fetchOrders" />
@@ -98,7 +195,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import api from '../../api';
 import CreateOrder from './CreateOrder.vue';
 
@@ -107,41 +204,82 @@ const loading = ref(false);
 const error = ref('');
 const searchQuery = ref('');
 const filterStatus = ref('');
-const filterType = ref('');
-const showDeleteConfirm = ref(false);
+const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
+
+const selectedOrderId = ref(null);
+
 const showCreateOrderModal = ref(false);
+const showSummaryModal = ref(false);
+const showEditModal = ref(false);
+const showPaymentModal = ref(false);
+const showDeleteConfirm = ref(false);
+
 const deleting = ref(false);
-const orderToDelete = ref(null);
+const savingEdit = ref(false);
+const submittingPayment = ref(false);
+
+const editForm = ref({
+  order_type: 'retail',
+  delivery_address: '',
+  delivery_date: '',
+  notes: '',
+});
+
+const paymentForm = ref({
+  amount: null,
+  payment_date: new Date().toISOString().slice(0, 10),
+  payment_method: 'cash',
+  deposit_date: new Date().toISOString().slice(0, 10),
+  check_from: '',
+});
 
 const filteredOrders = computed(() => {
   let filtered = orders.value;
 
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
-    filtered = filtered.filter(order =>
+    filtered = filtered.filter((order) =>
       order.id.toString().includes(query) ||
       order.customer?.name?.toLowerCase().includes(query)
     );
   }
 
   if (filterStatus.value) {
-    filtered = filtered.filter(order => order.status === filterStatus.value);
-  }
-
-  if (filterType.value) {
-    filtered = filtered.filter(order => order.type === filterType.value);
+    filtered = filtered.filter((order) => order.status === filterStatus.value);
   }
 
   return filtered;
 });
 
-const fetchOrders = async () => {
+const selectedOrder = computed(() => {
+  return orders.value.find((order) => order.id === selectedOrderId.value) || null;
+});
+
+const selectOrder = (order) => {
+  selectedOrderId.value = order.id;
+};
+
+const requireSelectedOrder = () => {
+  if (!selectedOrder.value) {
+    alert('Please select an order row first.');
+    return false;
+  }
+  return true;
+};
+
+const fetchOrders = async (page = 1) => {
   loading.value = true;
   error.value = '';
   try {
-    const response = await api.get('/orders');
+    const response = await api.get('/orders', {
+      params: { page, per_page: pagination.value.per_page }
+    });
     if (response.data.success) {
       orders.value = response.data.data;
+      pagination.value = response.data.pagination || pagination.value;
+      if (selectedOrderId.value && !orders.value.some((order) => order.id === selectedOrderId.value)) {
+        selectedOrderId.value = null;
+      }
     } else {
       error.value = response.data.message || 'Failed to load orders';
     }
@@ -152,341 +290,330 @@ const fetchOrders = async () => {
   }
 };
 
-const editOrder = (order) => {
-  // Navigate to edit order page
-  // For now, just show an alert
-  alert('Edit order functionality will be implemented');
+const changePage = (page) => {
+  if (page < 1 || page > pagination.value.last_page) return;
+  fetchOrders(page);
 };
 
-const deleteOrder = (order) => {
-  orderToDelete.value = order;
+const openSummaryModal = () => {
+  if (!requireSelectedOrder()) return;
+  showSummaryModal.value = true;
+};
+
+const openEditModal = () => {
+  if (!requireSelectedOrder()) return;
+
+  editForm.value = {
+    order_type: selectedOrder.value.type || 'retail',
+    delivery_address: selectedOrder.value.delivery_address || '',
+    delivery_date: selectedOrder.value.delivery_date || '',
+    notes: selectedOrder.value.notes || '',
+  };
+
+  showEditModal.value = true;
+};
+
+const saveOrderEdit = async () => {
+  if (!selectedOrder.value) return;
+
+  savingEdit.value = true;
+  try {
+    const response = await api.put(`/orders/${selectedOrder.value.id}`, editForm.value);
+    if (response.data.success) {
+      await fetchOrders(pagination.value.current_page);
+      showEditModal.value = false;
+    } else {
+      alert(response.data.message || 'Failed to update order');
+    }
+  } catch (err) {
+    alert(err.response?.data?.message || 'Failed to update order');
+  } finally {
+    savingEdit.value = false;
+  }
+};
+
+const openPaymentModal = () => {
+  if (!requireSelectedOrder()) return;
+
+  paymentForm.value = {
+    amount: Number(selectedOrder.value.outstanding_balance || 0),
+    payment_date: new Date().toISOString().slice(0, 10),
+    payment_method: 'cash',
+    deposit_date: new Date().toISOString().slice(0, 10),
+    check_from: '',
+  };
+
+  showPaymentModal.value = true;
+};
+
+const submitPayment = async () => {
+  if (!selectedOrder.value) return;
+
+  submittingPayment.value = true;
+  try {
+    const payload = {
+      order_id: selectedOrder.value.id,
+      amount: Number(paymentForm.value.amount || 0),
+      payment_date: paymentForm.value.payment_date,
+      payment_method: paymentForm.value.payment_method,
+      deposit_date: paymentForm.value.payment_method === 'check' ? paymentForm.value.deposit_date : null,
+      check_from: paymentForm.value.payment_method === 'check' ? paymentForm.value.check_from : null,
+    };
+
+    const response = await api.post('/payments', payload);
+    if (response.data.success) {
+      await fetchOrders(pagination.value.current_page);
+      showPaymentModal.value = false;
+    } else {
+      alert(response.data.message || 'Failed to save payment');
+    }
+  } catch (err) {
+    alert(err.response?.data?.message || 'Failed to save payment');
+  } finally {
+    submittingPayment.value = false;
+  }
+};
+
+const openDeleteConfirm = () => {
+  if (!requireSelectedOrder()) return;
   showDeleteConfirm.value = true;
 };
 
 const confirmDelete = async () => {
+  if (!selectedOrder.value) return;
+
   deleting.value = true;
   try {
-    const response = await api.delete(`/orders/${orderToDelete.value.id}`);
+    const response = await api.delete(`/orders/${selectedOrder.value.id}`);
     if (response.data.success) {
-      await fetchOrders();
       showDeleteConfirm.value = false;
-      orderToDelete.value = null;
+      selectedOrderId.value = null;
+      const targetPage = orders.value.length === 1 && pagination.value.current_page > 1
+        ? pagination.value.current_page - 1
+        : pagination.value.current_page;
+      await fetchOrders(targetPage);
     } else {
-      alert(response.data.message || 'Failed to delete order');
+      alert(response.data.message || 'Failed to archive order');
     }
   } catch (err) {
-    alert(err.response?.data?.message || 'Failed to delete order');
+    alert(err.response?.data?.message || 'Failed to archive order');
   } finally {
     deleting.value = false;
   }
 };
 
-onMounted(() => {
-  fetchOrders();
-});
+onMounted(() => fetchOrders(1));
 </script>
 
 <style scoped>
 .orders-container {
   max-width: 1400px;
   margin: 0 auto;
-  animation: fadeIn 0.3s ease-in;
   padding: 20px 0;
-  position: relative;
 }
 
 .header-section {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 32px;
-  padding: 24px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  margin-bottom: 16px;
 }
 
 .header-section h1 {
   margin: 0;
   color: #0a1d37;
-  font-size: 28px;
-  font-weight: 700;
+}
+
+.actions-bar {
+  position: sticky;
+  top: 8px;
+  z-index: 20;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #e9ecef;
+  border-radius: 10px;
 }
 
 .filters {
   display: flex;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
-  padding: 20px;
+  padding: 14px;
   background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  border: 1px solid #e9ecef;
 }
 
 .filters input,
-.filters select {
-  padding: 12px 16px;
-  border: 2px solid #e9ecef;
+.filters select,
+.form-group input,
+.form-group select,
+.form-group textarea {
+  padding: 10px 12px;
+  border: 1px solid #d8dde3;
   border-radius: 8px;
-  font-size: 14px;
-  transition: all 0.3s ease;
-  background-color: #fafbfc;
-  min-width: 200px;
-}
-
-.filters input:focus,
-.filters select:focus {
-  outline: none;
-  border-color: #e57c2a;
-  box-shadow: 0 0 0 3px rgba(229, 124, 42, 0.1);
-  background-color: white;
-}
-
-.filters input {
-  flex: 1;
-  min-width: 280px;
 }
 
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  overflow: hidden;
-  margin-bottom: 20px;
+  background: #fff;
 }
 
-.data-table thead {
-  background-color: #fafbfc;
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid #eef1f4;
 }
 
-.data-table th {
-  padding: 18px 20px;
-  text-align: left;
-  font-weight: 600;
-  color: #0a1d37;
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 2px solid #e0e0e0;
+.page-info {
+  font-size: 13px;
+  color: #4a5565;
 }
 
+.data-table th,
 .data-table td {
-  padding: 18px 20px;
-  border-bottom: 1px solid #f0f0f0;
-  color: #333;
+  padding: 12px;
+  border-bottom: 1px solid #eef1f4;
+}
+
+.data-table tbody tr {
+  cursor: pointer;
 }
 
 .data-table tbody tr:hover {
-  background-color: #fafbfc;
+  background: #f7f9fc;
 }
 
-.badge {
+.selected-row {
+  background: #e8f1ff !important;
+  outline: 2px solid #7aa2ff;
+}
+
+.badge,
+.status {
   display: inline-block;
-  padding: 6px 12px;
+  padding: 4px 8px;
   border-radius: 6px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
 }
 
 .badge.retail {
-  background-color: #e3f2fd;
+  background: #e3f2fd;
   color: #1976d2;
 }
 
 .badge.wholesale {
-  background-color: #f3e5f5;
+  background: #f3e5f5;
   color: #7b1fa2;
 }
 
-.status {
-  display: inline-block;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+.status.pending,
+.status.partial {
+  background: #fff3e0;
+  color: #ef6c00;
 }
 
-.status.pending {
-  background-color: #fff3e0;
-  color: #f57c00;
-}
-
-.status.paid {
-  background-color: #e8f5e9;
-  color: #388e3c;
-}
-
+.status.paid,
 .status.delivered {
-  background-color: #e0f2f1;
-  color: #00897b;
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.status.processing {
+  background: #e1f5fe;
+  color: #0277bd;
+}
+
+.status.cancelled {
+  background: #fdecea;
+  color: #b71c1c;
 }
 
 .btn {
-  padding: 12px 24px;
+  padding: 10px 16px;
   border: none;
   border-radius: 8px;
   cursor: pointer;
   font-weight: 600;
-  text-decoration: none;
-  display: inline-block;
-  transition: all 0.3s ease;
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 .btn-primary {
-  background-color: #e57c2a;
-  color: white;
+  background: #e57c2a;
+  color: #fff;
 }
 
-.btn-primary:hover {
-  background-color: #d46a1a;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(229, 124, 42, 0.3);
+.btn-secondary {
+  background: #f1f3f5;
+  color: #25303d;
 }
 
-.btn-small {
-  padding: 8px 16px;
-  background-color: #f8f9fa;
-  border: 2px solid #e9ecef;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  margin-right: 8px;
-  transition: all 0.3s ease;
-  color: #495057;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.btn-small:hover {
-  background-color: #e57c2a;
-  color: white;
-  border-color: #e57c2a;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(229, 124, 42, 0.15);
+.btn-danger {
+  background: #dc3545;
+  color: #fff;
 }
 
 .modal-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: rgba(12, 21, 37, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 120;
-  padding: 18px;
-  border-radius: 12px;
+  padding: 16px;
 }
 
 .modal-content {
-  background: white;
+  background: #fff;
   border-radius: 12px;
-  width: 100%;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.2);
-}
-
-.small-modal {
-  max-width: 420px;
+  width: min(620px, 100%);
   padding: 20px;
 }
 
-.create-order-modal {
-  width: min(980px, calc(100% - 36px));
-  max-width: 980px;
-  max-height: calc(100vh - 48px);
-  overflow-y: auto;
-  padding: 0 22px 22px;
-  position: relative;
-}
-
-.create-order-overlay {
-  position: fixed;
-  top: 0;
-  left: 280px;
-  width: calc(100vw - 280px);
-  height: 100vh;
-  border-radius: 0;
-  z-index: 120;
-}
-
-.warning {
-  margin: 8px 0 0;
-  color: #b42318;
-  font-size: 13px;
+.small-modal {
+  width: min(420px, 100%);
 }
 
 .modal-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
   margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
-@media (max-width: 768px) {
-  .create-order-overlay {
-    left: 0;
-    width: 100vw;
-  }
+.summary-block p {
+  margin: 6px 0;
+}
 
-  .orders-container {
-    padding: 10px 0;
-  }
+.auto-ref-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #5f6b7a;
+}
 
-  .header-section {
-    flex-direction: column;
-    gap: 20px;
-    text-align: center;
-    padding: 20px;
-  }
+.create-order-modal {
+  width: min(980px, calc(100% - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
 
-  .header-section h1 {
-    font-size: 24px;
-  }
-
-  .filters {
-    flex-direction: column;
-    gap: 12px;
-    padding: 16px;
-  }
-
-  .filters input,
-  .filters select {
-    min-width: auto;
-    width: 100%;
-  }
-
-  .filters input {
-    flex: none;
-  }
-
-  .data-table th,
-  .data-table td {
-    padding: 12px 16px;
-  }
-
-  .btn {
-    padding: 10px 20px;
-    font-size: 13px;
-  }
+.create-order-overlay {
+  left: 280px;
+  width: calc(100vw - 280px);
 }
 </style>

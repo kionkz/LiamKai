@@ -8,6 +8,7 @@ use App\Models\Payment;
 use App\Models\Order;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class PaymentController extends Controller
 {
@@ -50,33 +51,36 @@ class PaymentController extends Controller
             DB::beginTransaction();
             
             $order = Order::findOrFail($request->order_id);
+            $currentOutstanding = (float) $order->outstanding_balance;
             
             // Validate payment amount doesn't exceed balance
-            if ($request->amount > $order->balance_due) {
+            if ((float) $request->amount > $currentOutstanding) {
                 return response()->json([
                     'success' => false,
-                    'message' => "Payment amount exceeds balance due. Balance: {$order->balance_due}"
+                    'message' => "Payment amount exceeds outstanding balance. Balance: {$order->outstanding_balance}"
                 ], 422);
             }
             
             // Create payment record
+            $method = $request->input('payment_method', 'cash');
             $payment = Payment::create([
                 'order_id' => $request->order_id,
                 'amount' => $request->amount,
-                'payment_method' => $request->input('payment_method', 'cash'),
-                'reference' => $request->reference ?? null,
-                'payment_date' => $request->payment_date ?? now(),
+                'payment_method' => $method,
+                'reference' => $this->generatePaymentReference(),
+                'payment_date' => $request->payment_date ?? now()->toDateString(),
+                'deposit_date' => $method === 'check' ? $request->deposit_date : null,
+                'check_from' => $method === 'check' ? $request->check_from : null,
             ]);
             
-            // Update order balance
+            $newOutstanding = max($currentOutstanding - (float) $request->amount, 0);
+
             $order->update([
-                'balance_due' => $order->balance_due - $request->amount,
+                'outstanding_balance' => $newOutstanding,
+                'payment_status' => $newOutstanding <= 0
+                    ? 'paid'
+                    : ($newOutstanding < (float) $order->total_amount ? 'partial' : 'pending'),
             ]);
-            
-            // If fully paid, update order status
-            if ($order->balance_due <= 0) {
-                $order->update(['status' => 'confirmed']);
-            }
             
             DB::commit();
             
@@ -85,7 +89,8 @@ class PaymentController extends Controller
                 'message' => 'Payment recorded successfully',
                 'data' => [
                     'payment' => $payment,
-                    'order_balance' => $order->balance_due,
+                    'order_balance' => $newOutstanding,
+                    'payment_status' => $order->fresh()->payment_status,
                 ]
             ], 201);
             
@@ -103,6 +108,15 @@ class PaymentController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function generatePaymentReference(): string
+    {
+        do {
+            $reference = 'PAY-' . now()->format('Ymd') . '-' . Str::upper(Str::random(6));
+        } while (Payment::where('reference', $reference)->exists());
+
+        return $reference;
     }
 
     /**
@@ -156,9 +170,13 @@ class PaymentController extends Controller
             $order = $payment->order;
             
             // Restore order balance
+            $restoredOutstanding = (float) $order->outstanding_balance + (float) $payment->amount;
+            $totalAmount = (float) $order->total_amount;
             $order->update([
-                'balance_due' => $order->balance_due + $payment->amount,
-                'status' => 'pending'
+                'outstanding_balance' => $restoredOutstanding,
+                'payment_status' => $restoredOutstanding >= $totalAmount
+                    ? 'pending'
+                    : ($restoredOutstanding > 0 ? 'partial' : 'paid'),
             ]);
             
             $payment->delete();

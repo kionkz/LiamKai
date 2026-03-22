@@ -12,6 +12,9 @@ class Payment extends Model
         'purchase_order_id',
         'amount',
         'payment_method',
+        'payment_date',
+        'deposit_date',
+        'check_from',
         'reference',
         'status',
         'notes',
@@ -19,6 +22,8 @@ class Payment extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'payment_date' => 'date',
+        'deposit_date' => 'date',
     ];
 
     // Relationships

@@ -69,7 +69,13 @@
       </div>
 
       <div class="orders-history">
-        <h3>Order History</h3>
+        <div class="orders-header">
+          <h3>Order History</h3>
+          <div class="orders-actions">
+            <button @click="viewSelectedOrder" class="btn btn-secondary btn-small-action">View</button>
+            <button @click="openEditOrderModal" class="btn btn-secondary btn-small-action">Edit</button>
+          </div>
+        </div>
         <div v-if="customer.orders && customer.orders.length === 0" class="no-orders">
           <p>No orders found for this customer.</p>
         </div>
@@ -80,21 +86,58 @@
               <th>Date</th>
               <th>Amount</th>
               <th>Status</th>
-              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="order in customer.orders" :key="order.id">
+            <tr
+              v-for="order in customer.orders"
+              :key="order.id"
+              @click="selectOrder(order)"
+              :class="{ 'selected-row': selectedOrderId === order.id }"
+            >
               <td>#{{ order.id.toString().padStart(4, '0') }}</td>
               <td>{{ new Date(order.created_at).toLocaleDateString() }}</td>
               <td>₱{{ order.total_amount?.toLocaleString() || '0' }}</td>
-              <td><span class="status" :class="order.status">{{ order.status }}</span></td>
-              <td>
-                <router-link :to="`/orders/${order.id}`" class="btn-small">View</router-link>
-              </td>
+              <td><span class="status" :class="order.payment_status || order.status">{{ order.payment_status || order.status || 'pending' }}</span></td>
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <div v-if="showEditOrderModal" class="modal-overlay" @click="showEditOrderModal = false">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h2>Edit Customer Order</h2>
+          <button @click="showEditOrderModal = false" class="btn-close">×</button>
+        </div>
+        <form @submit.prevent="saveOrderEdit">
+          <div class="form-group">
+            <label>Order Type</label>
+            <select v-model="orderEditForm.order_type">
+              <option value="retail">Retail</option>
+              <option value="wholesale">Wholesale</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Delivery Address</label>
+            <input v-model="orderEditForm.delivery_address" type="text" />
+          </div>
+          <div class="form-group">
+            <label>Delivery Date</label>
+            <input v-model="orderEditForm.delivery_date" type="date" />
+          </div>
+          <div class="form-group">
+            <label>Notes</label>
+            <textarea v-model="orderEditForm.notes" rows="3"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" @click="showEditOrderModal = false" class="btn btn-secondary">Cancel</button>
+            <button type="submit" :disabled="savingOrderEdit" class="btn btn-primary">
+              {{ savingOrderEdit ? 'Saving...' : 'Save Changes' }}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
 
@@ -118,7 +161,7 @@
 
           <div class="form-group">
             <label for="phone">Contact Number *</label>
-            <input v-model="editForm.phone" type="tel" id="phone" required />
+            <input v-model="editForm.phone" type="tel" id="phone" placeholder="+639XXXXXXXXX" required @blur="normalizePhoneField" />
           </div>
 
           <div class="form-group">
@@ -156,15 +199,26 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../api';
 
 const route = useRoute();
+const router = useRouter();
 const customer = ref(null);
 const loading = ref(false);
 const error = ref('');
 const showEditForm = ref(false);
 const saving = ref(false);
+const selectedOrderId = ref(null);
+const showEditOrderModal = ref(false);
+const savingOrderEdit = ref(false);
+
+const orderEditForm = ref({
+  order_type: 'retail',
+  delivery_address: '',
+  delivery_date: '',
+  notes: '',
+});
 
 const editForm = ref({
   name: '',
@@ -174,6 +228,18 @@ const editForm = ref({
   type: 'retail',
   credit_limit: 0
 });
+
+const normalizePhPhone = (value) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('09') && digits.length === 11) return `+63${digits.slice(1)}`;
+  if (digits.startsWith('9') && digits.length === 10) return `+63${digits}`;
+  if (digits.startsWith('63') && digits.length === 12) return `+${digits}`;
+  return value;
+};
+
+const normalizePhoneField = () => {
+  editForm.value.phone = normalizePhPhone(editForm.value.phone);
+};
 
 // Keep credit_limit in sync with type selection
 watch(() => editForm.value.type, (newType) => {
@@ -195,6 +261,59 @@ const availableCredit = computed(() => {
   return (customer.value?.credit_limit || 0) - currentBalance.value;
 });
 
+const selectedOrder = computed(() => {
+  return customer.value?.orders?.find((order) => order.id === selectedOrderId.value) || null;
+});
+
+const selectOrder = (order) => {
+  selectedOrderId.value = order.id;
+};
+
+const requireSelectedOrder = () => {
+  if (!selectedOrder.value) {
+    alert('Please select an order row first.');
+    return false;
+  }
+  return true;
+};
+
+const viewSelectedOrder = () => {
+  if (!requireSelectedOrder()) return;
+  router.push(`/orders/${selectedOrder.value.id}`);
+};
+
+const openEditOrderModal = () => {
+  if (!requireSelectedOrder()) return;
+
+  orderEditForm.value = {
+    order_type: selectedOrder.value.order_type || selectedOrder.value.type || 'retail',
+    delivery_address: selectedOrder.value.delivery_address || '',
+    delivery_date: selectedOrder.value.delivery_date || '',
+    notes: selectedOrder.value.notes || '',
+  };
+
+  showEditOrderModal.value = true;
+};
+
+const saveOrderEdit = async () => {
+  if (!selectedOrder.value) return;
+
+  savingOrderEdit.value = true;
+  try {
+    const response = await api.put(`/orders/${selectedOrder.value.id}`, orderEditForm.value);
+    if (response.data.success) {
+      showEditOrderModal.value = false;
+      await fetchCustomer();
+    } else {
+      alert(response.data.message || 'Failed to update order');
+    }
+  } catch (err) {
+    alert(err.response?.data?.message || 'Failed to update order');
+  } finally {
+    savingOrderEdit.value = false;
+  }
+};
+
 const fetchCustomer = async () => {
   loading.value = true;
   error.value = '';
@@ -202,6 +321,9 @@ const fetchCustomer = async () => {
     const response = await api.get(`/customers/${route.params.id}`);
     if (response.data.success) {
       customer.value = response.data.data;
+      if (selectedOrderId.value && !customer.value.orders?.some((order) => order.id === selectedOrderId.value)) {
+        selectedOrderId.value = null;
+      }
     } else {
       error.value = response.data.message || 'Failed to load customer';
     }
@@ -215,6 +337,8 @@ const fetchCustomer = async () => {
 const updateCustomer = async () => {
   saving.value = true;
   try {
+    normalizePhoneField();
+
     const payload = { ...editForm.value };
     if (payload.type === 'retail') delete payload.credit_limit;
     else if (payload.credit_limit > 15000) payload.credit_limit = 15000;
@@ -345,6 +469,23 @@ onMounted(() => {
   margin-bottom: 30px;
 }
 
+.orders-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.orders-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-small-action {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
 .orders-history h3 {
   margin: 0 0 15px 0;
   color: #0a1d37;
@@ -371,6 +512,19 @@ onMounted(() => {
 .data-table td {
   padding: 12px;
   border-bottom: 1px solid #e0e0e0;
+}
+
+.data-table tbody tr {
+  cursor: pointer;
+}
+
+.data-table tbody tr:hover {
+  background-color: #f5f8fd;
+}
+
+.selected-row {
+  background: #e8f1ff !important;
+  outline: 2px solid #7aa2ff;
 }
 
 .status {

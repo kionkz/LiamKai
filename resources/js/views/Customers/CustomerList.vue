@@ -7,6 +7,12 @@
       <button @click="showNewCustomerForm = true" class="btn btn-primary">+ New Customer</button>
     </div>
 
+    <div class="actions-bar">
+      <button @click="viewSelectedCustomer" class="btn btn-secondary">View</button>
+      <button @click="openEditSelectedCustomer" class="btn btn-secondary">Edit</button>
+      <button @click="openDeleteSelectedCustomer" class="btn btn-danger">Delete</button>
+    </div>
+
     <!-- Loading State -->
     <div v-if="loading" class="loading-state">
       <p>Loading customers...</p>
@@ -29,28 +35,37 @@
             <th>Type</th>
             <th>Address</th>
             <th>Credit Limit</th>
-            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="customers.length === 0">
             <td colspan="6" class="no-data">No customers found. Add your first customer!</td>
           </tr>
-          <tr v-for="customer in customers" :key="customer.id">
+          <tr
+            v-for="customer in customers"
+            :key="customer.id"
+            @click="selectCustomer(customer)"
+            :class="{ 'selected-row': selectedCustomerId === customer.id }"
+          >
             <td>{{ customer.name }}</td>
             <td>{{ customer.email || '-' }}</td>
             <td>{{ customer.phone }}</td>
             <td><span class="badge" :class="customer.type">{{ customer.type === 'retail' ? 'Retail' : 'Wholesale' }}</span></td>
             <td>{{ customer.address }}</td>
             <td>{{ customer.credit_limit || '0' }}</td>
-            <td>
-              <router-link :to="`/customers/${customer.id}`" class="btn-small">View</router-link>
-              <button @click="editCustomer(customer)" class="btn-small">Edit</button>
-              <button @click="deleteCustomer(customer)" class="btn-small btn-danger">Delete</button>
-            </td>
           </tr>
         </tbody>
       </table>
+
+      <div class="pagination" v-if="pagination.last_page > 1">
+        <button class="btn btn-secondary" @click="changePage(pagination.current_page - 1)" :disabled="pagination.current_page === 1">
+          Previous
+        </button>
+        <span class="page-info">Page {{ pagination.current_page }} of {{ pagination.last_page }}</span>
+        <button class="btn btn-secondary" @click="changePage(pagination.current_page + 1)" :disabled="pagination.current_page === pagination.last_page">
+          Next
+        </button>
+      </div>
     </div>
 
     <!-- New Customer Modal -->
@@ -73,7 +88,7 @@
 
           <div class="form-group">
             <label for="phone">Phone *</label>
-            <input v-model="customerForm.phone" type="tel" id="phone" placeholder="Enter phone number" required />
+            <input v-model="customerForm.phone" type="tel" id="phone" placeholder="+639XXXXXXXXX" required @blur="normalizePhoneField" />
           </div>
 
           <div class="form-group">
@@ -125,8 +140,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../../api';
+
+const router = useRouter();
 
 const customers = ref([]);
 const loading = ref(false);
@@ -137,6 +155,8 @@ const saving = ref(false);
 const deleting = ref(false);
 const editingCustomer = ref(null);
 const customerToDelete = ref(null);
+const selectedCustomerId = ref(null);
+const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
 
 const customerForm = ref({
   name: '',
@@ -147,6 +167,49 @@ const customerForm = ref({
   credit_limit: 0
 });
 
+const normalizePhPhone = (value) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('09') && digits.length === 11) return `+63${digits.slice(1)}`;
+  if (digits.startsWith('9') && digits.length === 10) return `+63${digits}`;
+  if (digits.startsWith('63') && digits.length === 12) return `+${digits}`;
+  return value;
+};
+
+const normalizePhoneField = () => {
+  customerForm.value.phone = normalizePhPhone(customerForm.value.phone);
+};
+
+const selectedCustomer = computed(() => {
+  return customers.value.find((customer) => customer.id === selectedCustomerId.value) || null;
+});
+
+const selectCustomer = (customer) => {
+  selectedCustomerId.value = customer.id;
+};
+
+const requireSelectedCustomer = () => {
+  if (!selectedCustomer.value) {
+    alert('Please select a customer row first.');
+    return false;
+  }
+  return true;
+};
+
+const viewSelectedCustomer = () => {
+  if (!requireSelectedCustomer()) return;
+  router.push(`/customers/${selectedCustomer.value.id}`);
+};
+
+const openEditSelectedCustomer = () => {
+  if (!requireSelectedCustomer()) return;
+  editCustomer(selectedCustomer.value);
+};
+
+const openDeleteSelectedCustomer = () => {
+  if (!requireSelectedCustomer()) return;
+  deleteCustomer(selectedCustomer.value);
+};
+
 // When type changes, ensure credit limit obeys business rules
 watch(() => customerForm.value.type, (newType) => {
   if (newType === 'retail') {
@@ -156,13 +219,16 @@ watch(() => customerForm.value.type, (newType) => {
   }
 });
 
-const fetchCustomers = async () => {
+const fetchCustomers = async (page = 1) => {
   loading.value = true;
   error.value = '';
   try {
-    const response = await api.get('/customers');
+    const response = await api.get('/customers', {
+      params: { page, per_page: pagination.value.per_page }
+    });
     if (response.data.success) {
       customers.value = response.data.data;
+      pagination.value = response.data.pagination || pagination.value;
     } else {
       error.value = response.data.message || 'Failed to load customers';
     }
@@ -173,9 +239,16 @@ const fetchCustomers = async () => {
   }
 };
 
+const changePage = (page) => {
+  if (page < 1 || page > pagination.value.last_page) return;
+  fetchCustomers(page);
+};
+
 const saveCustomer = async () => {
   saving.value = true;
   try {
+    normalizePhoneField();
+
     // Prepare payload according to rules: do not send credit_limit for retail; clamp wholesale
     const payload = { ...customerForm.value };
     if (payload.type === 'retail') {
@@ -192,7 +265,7 @@ const saveCustomer = async () => {
     }
 
     if (response.data.success) {
-      await fetchCustomers();
+      await fetchCustomers(pagination.value.current_page);
       closeModal();
     } else {
       alert(response.data.message || 'Failed to save customer');
@@ -228,7 +301,10 @@ const confirmDelete = async () => {
   try {
     const response = await api.delete(`/customers/${customerToDelete.value.id}`);
     if (response.data.success) {
-      await fetchCustomers();
+      const targetPage = customers.value.length === 1 && pagination.value.current_page > 1
+        ? pagination.value.current_page - 1
+        : pagination.value.current_page;
+      await fetchCustomers(targetPage);
       showDeleteConfirm.value = false;
       customerToDelete.value = null;
     } else {
@@ -255,7 +331,7 @@ const closeModal = () => {
 };
 
 onMounted(() => {
-  fetchCustomers();
+  fetchCustomers(1);
 });
 </script>
 
@@ -276,6 +352,30 @@ onMounted(() => {
   background: white;
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.actions-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 14px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid #edf0f4;
+}
+
+.page-info {
+  font-size: 13px;
+  color: #4a5565;
 }
 
 .header-left {
@@ -397,6 +497,19 @@ onMounted(() => {
 .data-table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.data-table tbody tr {
+  cursor: pointer;
+}
+
+.data-table tbody tr:hover {
+  background-color: #fafbff;
+}
+
+.selected-row {
+  background: #e8f1ff !important;
+  outline: 2px solid #7aa2ff;
 }
 
 .data-table th,

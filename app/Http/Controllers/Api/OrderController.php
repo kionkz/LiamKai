@@ -23,6 +23,7 @@ class OrderController extends Controller
     {
         try {
             $orders = Order::with('customer', 'orderItems.product', 'payments', 'delivery')
+                ->where('delivery_status', '!=', 'cancelled')
                 ->orderBy('created_at', 'desc')
                 ->paginate(15);
 
@@ -104,7 +105,10 @@ class OrderController extends Controller
                 $totalAmount += $item['quantity'] * $item['unit_price'];
             }
 
-            [$scheduledDelivery, $deliveryStatus] = $this->determineDeliverySchedule(Carbon::now());
+            [$scheduledDelivery, $deliveryStatus] = $this->determineDeliverySchedule(
+                Carbon::now(),
+                (bool) ($validated['is_urgent'] ?? false)
+            );
 
             Delivery::create([
                 'order_id' => $order->id,
@@ -175,7 +179,14 @@ class OrderController extends Controller
     {
         try {
             $order = Order::findOrFail($id);
-            $order->update($request->validated());
+            $validated = $request->validated();
+
+            if (isset($validated['type']) && !isset($validated['order_type'])) {
+                $validated['order_type'] = $validated['type'];
+                unset($validated['type']);
+            }
+
+            $order->update($validated);
 
             return response()->json([
                 'success' => true,
@@ -197,7 +208,7 @@ class OrderController extends Controller
     }
 
     /**
-     * Cancel an order (restore inventory)
+     * Archive an order (restores inventory and marks as cancelled)
      */
     public function destroy(string $id): JsonResponse
     {
@@ -209,7 +220,7 @@ class OrderController extends Controller
             if (in_array($order->delivery_status, ['delivered', 'cancelled'], true)) {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot cancel {$order->delivery_status} order"
+                    'message' => "Cannot archive {$order->delivery_status} order"
                 ], 422);
             }
 
@@ -234,24 +245,33 @@ class OrderController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Order cancelled and inventory restored'
+                'message' => 'Order archived and inventory restored'
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
                 'success' => false,
-                'message' => 'Error cancelling order',
+                'message' => 'Error archiving order',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
 
-    private function determineDeliverySchedule(Carbon $orderTime): array
+    private function determineDeliverySchedule(Carbon $orderTime, bool $isUrgent = false): array
     {
-        $cutoffTime = $orderTime->copy()->setTime(15, 0, 0);
+        // Business rule from project paper:
+        // - Morning orders are grouped for same-day dispatch.
+        // - Non-urgent afternoon/evening orders move to next day.
+        // - Urgent requests are arranged on or before 5 PM.
+        $noonCutoff = $orderTime->copy()->setTime(12, 0, 0);
+        $sameDayTarget = $orderTime->copy()->setTime(17, 0, 0);
 
-        if ($orderTime->lessThanOrEqualTo($cutoffTime)) {
-            return [$orderTime->copy()->setTime(18, 0, 0), 'processing'];
+        if ($isUrgent) {
+            return [$sameDayTarget, 'processing'];
+        }
+
+        if ($orderTime->lessThanOrEqualTo($noonCutoff)) {
+            return [$sameDayTarget, 'processing'];
         }
 
         return [$orderTime->copy()->addDay()->setTime(9, 0, 0), 'pending'];
@@ -261,7 +281,7 @@ class OrderController extends Controller
     {
         $formatted = $order->toArray();
         $formatted['type'] = $order->order_type;
-        $formatted['status'] = $order->delivery_status;
+        $formatted['status'] = $order->payment_status;
         $formatted['items'] = $formatted['order_items'] ?? [];
 
         return $formatted;

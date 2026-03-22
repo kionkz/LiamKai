@@ -54,6 +54,12 @@
       </tbody>
     </table>
 
+    <div class="pagination" v-if="pagination.last_page > 1">
+      <button class="btn btn-secondary" @click="changePage(pagination.current_page - 1)" :disabled="pagination.current_page === 1">Previous</button>
+      <span class="page-info">Page {{ pagination.current_page }} of {{ pagination.last_page }}</span>
+      <button class="btn btn-secondary" @click="changePage(pagination.current_page + 1)" :disabled="pagination.current_page === pagination.last_page">Next</button>
+    </div>
+
     <!-- Add/Edit Employee Modal -->
     <div v-if="showAddModal" class="modal-overlay" @click.self="closeModal">
       <div class="modal-content">
@@ -170,6 +176,7 @@ const selectedEmployee = ref(null);
 const loading = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
+const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
 
 const employees = ref([]);
 
@@ -238,12 +245,15 @@ const resetForm = () => {
   };
 };
 
-const loadEmployees = async () => {
+const loadEmployees = async (page = 1) => {
   loading.value = true;
   errorMessage.value = '';
   try {
-    const response = await api.get('/employees');
+    const response = await api.get('/employees', {
+      params: { page, per_page: pagination.value.per_page }
+    });
     if (response.data?.success) {
+      pagination.value = response.data.pagination || pagination.value;
       employees.value = (response.data.data || []).map((emp) => ({
         ...emp,
         active: emp.status === 'active',
@@ -257,6 +267,11 @@ const loadEmployees = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const changePage = (page) => {
+  if (page < 1 || page > pagination.value.last_page) return;
+  loadEmployees(page);
 };
 
 const editEmployee = (emp) => {
@@ -305,7 +320,7 @@ const saveEmployee = async () => {
       successMessage.value = 'Employee created successfully';
     }
 
-    await loadEmployees();
+    await loadEmployees(pagination.value.current_page);
     closeModal();
   } catch (error) {
     const validationError = error.response?.data?.errors
@@ -341,7 +356,7 @@ const viewLoginLogs = (emp) => {
 };
 
 onMounted(() => {
-  loadEmployees();
+  loadEmployees(1);
 });
 </script>
 
@@ -475,6 +490,19 @@ onMounted(() => {
 
 .employees-table tbody tr:hover {
   background-color: #f9f9f9;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.page-info {
+  font-size: 13px;
+  color: #4b5563;
 }
 
 .name {

@@ -25,8 +25,17 @@ class StorePaymentRequest extends FormRequest
             'order_id' => 'required|exists:orders,id',
             'amount' => 'required|numeric|min:0.01',
             'payment_method' => 'nullable|in:cash,check,bank_transfer,credit',
-            'reference' => 'nullable|string|max:255',
             'payment_date' => 'nullable|date',
+            'deposit_date' => 'required_if:payment_method,check|nullable|date',
+            'check_from' => 'required_if:payment_method,check|nullable|string|max:255',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'deposit_date.required_if' => 'Deposit date is required for check payments.',
+            'check_from.required_if' => 'Check issuer is required for check payments.',
         ];
     }
 }

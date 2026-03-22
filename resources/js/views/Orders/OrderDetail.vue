@@ -8,7 +8,7 @@
       <div class="header-actions">
         <button @click="editOrder" class="btn btn-secondary">Edit Order</button>
         <button @click="printOrder" class="btn btn-secondary">Print</button>
-        <button @click="deleteOrder" class="btn btn-danger">Delete</button>
+        <button @click="deleteOrder" class="btn btn-danger">Archive</button>
       </div>
     </div>
 
@@ -117,16 +117,16 @@
       </div>
     </div>
 
-    <!-- Delete Confirmation Modal -->
+    <!-- Archive Confirmation Modal -->
     <div v-if="showDeleteConfirm" class="modal-overlay" @click="showDeleteConfirm = false">
       <div class="modal-content small-modal" @click.stop>
-        <h3>Confirm Delete</h3>
-        <p>Are you sure you want to delete Order #{{ order?.id?.toString().padStart(4, '0') }}?</p>
-        <p class="warning">This action cannot be undone.</p>
+        <h3>Confirm Archive</h3>
+        <p>Are you sure you want to archive Order #{{ order?.id?.toString().padStart(4, '0') }}?</p>
+        <p class="warning">Archiving restores inventory and removes the order from active lists.</p>
         <div class="modal-actions">
           <button @click="showDeleteConfirm = false" class="btn btn-secondary">Cancel</button>
           <button @click="confirmDelete" :disabled="deleting" class="btn btn-danger">
-            {{ deleting ? 'Deleting...' : 'Delete Order' }}
+            {{ deleting ? 'Archiving...' : 'Archive Order' }}
           </button>
         </div>
       </div>
@@ -185,10 +185,10 @@ const confirmDelete = async () => {
     if (response.data.success) {
       router.push('/orders');
     } else {
-      alert(response.data.message || 'Failed to delete order');
+      alert(response.data.message || 'Failed to archive order');
     }
   } catch (err) {
-    alert(err.response?.data?.message || 'Failed to delete order');
+    alert(err.response?.data?.message || 'Failed to archive order');
   } finally {
     deleting.value = false;
   }
