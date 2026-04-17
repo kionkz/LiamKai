@@ -14,7 +14,7 @@
 
     <div class="filters">
       <input v-model="searchQuery" type="text" placeholder="Search order #, customer name..." />
-      <select v-model="filterStatus">
+      <select v-model="filterStatus" data-searchable="off">
         <option value="">All Payment Status</option>
         <option value="pending">Pending</option>
         <option value="partial">Partial</option>
@@ -105,10 +105,8 @@
         <form @submit.prevent="saveOrderEdit">
           <div class="form-group">
             <label>Order Type</label>
-            <select v-model="editForm.order_type">
-              <option value="retail">Retail</option>
-              <option value="wholesale">Wholesale</option>
-            </select>
+            <SearchableSelect v-model="editForm.order_type" :options="orderTypeOptions" placeholder="Select order type" />
+            <p class="rule-note">{{ getOrderTypeRuleMessage(editForm.order_type) }}</p>
           </div>
           <div class="form-group">
             <label>Delivery Address</label>
@@ -147,12 +145,7 @@
           </div>
           <div class="form-group">
             <label>Payment Method</label>
-            <select v-model="paymentForm.payment_method">
-              <option value="cash">Cash</option>
-              <option value="check">Check</option>
-              <option value="bank_transfer">Bank Transfer</option>
-              <option value="credit">Credit</option>
-            </select>
+            <SearchableSelect v-model="paymentForm.payment_method" :options="paymentMethodOptions" placeholder="Select payment method" />
           </div>
           <div v-if="paymentForm.payment_method === 'check'" class="form-group">
             <label>Deposit Date</label>
@@ -198,6 +191,8 @@
 import { computed, onMounted, ref } from 'vue';
 import api from '../../api';
 import CreateOrder from './CreateOrder.vue';
+import { findOrderTypeQuantityViolation, getApiErrorMessage, getOrderTypeRuleMessage } from '../../utils/orderValidation';
+import SearchableSelect from '../../components/SearchableSelect.vue';
 
 const orders = ref([]);
 const loading = ref(false);
@@ -232,6 +227,18 @@ const paymentForm = ref({
   deposit_date: new Date().toISOString().slice(0, 10),
   check_from: '',
 });
+
+const orderTypeOptions = [
+  { value: 'retail', label: 'Retail' },
+  { value: 'wholesale', label: 'Wholesale' },
+];
+
+const paymentMethodOptions = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'check', label: 'Check' },
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'credit', label: 'Credit' },
+];
 
 const filteredOrders = computed(() => {
   let filtered = orders.value;
@@ -316,6 +323,12 @@ const openEditModal = () => {
 const saveOrderEdit = async () => {
   if (!selectedOrder.value) return;
 
+  const quantityViolation = findOrderTypeQuantityViolation(selectedOrder.value.items || [], editForm.value.order_type);
+  if (quantityViolation) {
+    alert(quantityViolation.message);
+    return;
+  }
+
   savingEdit.value = true;
   try {
     const response = await api.put(`/orders/${selectedOrder.value.id}`, editForm.value);
@@ -326,7 +339,7 @@ const saveOrderEdit = async () => {
       alert(response.data.message || 'Failed to update order');
     }
   } catch (err) {
-    alert(err.response?.data?.message || 'Failed to update order');
+    alert(getApiErrorMessage(err, 'Failed to update order'));
   } finally {
     savingEdit.value = false;
   }
@@ -606,9 +619,16 @@ onMounted(() => fetchOrders(1));
   color: #5f6b7a;
 }
 
+.rule-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #5f6b7a;
+}
+
 .create-order-modal {
   width: min(980px, calc(100% - 32px));
   max-height: calc(100vh - 32px);
+  padding: 0;
   overflow-y: auto;
 }
 

@@ -105,12 +105,7 @@
 
           <div class="form-group">
             <label>Reason</label>
-            <select v-model="adjustmentReason">
-              <option value="restock">Restock/Receiving</option>
-              <option value="damage">Damage/Defect Adjustment</option>
-              <option value="loss">Loss/Theft Adjustment</option>
-              <option value="inventory_count">Inventory Count Adjustment</option>
-            </select>
+            <SearchableSelect v-model="adjustmentReason" :options="adjustmentReasonOptions" placeholder="Select reason" />
           </div>
 
           <div class="form-group">
@@ -197,12 +192,7 @@
 
           <div class="form-group">
             <label>Category <span class="required">*</span></label>
-            <select v-model="newProductForm.category" class="form-input" required>
-              <option value="">-- Select Category --</option>
-              <option v-for="cat in ['Tuna', 'Pompano', 'Seabass', 'Salmon', 'Squid', 'Shell']" :key="cat" :value="cat">
-                {{ cat }}
-              </option>
-            </select>
+            <SearchableSelect v-model="newProductForm.category" :options="inventoryCategoryOptions" placeholder="-- Select Category --" />
           </div>
 
           <div class="form-group">
@@ -217,11 +207,7 @@
 
           <div class="form-group">
             <label>Unit of Measure <span class="required">*</span></label>
-            <select v-model="newProductForm.unit_of_measure" class="form-input" required>
-              <option value="">-- Select Unit --</option>
-              <option value="per pack">Per Pack</option>
-              <option value="by kg">By KG</option>
-            </select>
+            <SearchableSelect v-model="newProductForm.unit_of_measure" :options="unitOfMeasureOptions" placeholder="-- Select Unit --" />
           </div>
 
           <div class="form-group">
@@ -264,6 +250,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
+import SearchableSelect from '../../components/SearchableSelect.vue';
 
 const router = useRouter();
 const searchQuery = ref('');
@@ -294,6 +281,24 @@ const selectedProduct = ref(null);
 const adjustmentAmount = ref(0);
 const adjustmentReason = ref('restock');
 const adjustmentNotes = ref('');
+
+const adjustmentReasonOptions = [
+  { value: 'restock', label: 'Restock/Receiving' },
+  { value: 'damage', label: 'Damage/Defect Adjustment' },
+  { value: 'loss', label: 'Loss/Theft Adjustment' },
+  { value: 'inventory_count', label: 'Inventory Count Adjustment' },
+];
+
+const inventoryCategoryOptions = ['Tuna', 'Pompano', 'Seabass', 'Salmon', 'Squid', 'Shell'].map((category) => ({
+  value: category,
+  label: category,
+}));
+
+const unitOfMeasureOptions = [
+  { value: '', label: '-- Select Unit --' },
+  { value: 'per pack', label: 'Per Pack' },
+  { value: 'by kg', label: 'By KG' },
+];
 
 const showAddProductModal = ref(false);
 const savingProduct = ref(false);

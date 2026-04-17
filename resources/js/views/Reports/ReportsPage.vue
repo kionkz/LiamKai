@@ -9,7 +9,7 @@
     <div class="report-controls">
       <div class="control-group">
         <label>Report Type:</label>
-        <select v-model="selectedReport" @change="updateReportData">
+        <select v-model="selectedReport" data-searchable="off" @change="updateReportData">
           <option value="sales">Sales Report</option>
           <option value="payments">Payment Report</option>
           <option value="inventory">Inventory Report</option>
@@ -19,7 +19,7 @@
 
       <div class="control-group">
         <label>Period:</label>
-        <select v-model="reportPeriod" @change="updateReportData">
+        <select v-model="reportPeriod" data-searchable="off" @change="updateReportData">
           <option value="today">Today</option>
           <option value="week">This Week</option>
           <option value="month">This Month</option>

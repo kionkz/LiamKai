@@ -65,7 +65,7 @@
     <!-- Purchase Orders Tab -->
     <div v-if="activeTab === 'orders'" class="tab-content">
       <div class="order-filters">
-        <select v-model="poStatusFilter" class="filter-input">
+        <select v-model="poStatusFilter" class="filter-input" data-searchable="off">
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
           <option value="received">Received</option>
@@ -109,7 +109,7 @@
             <td class="actions-cell">
               <button @click="viewPO(po)" class="btn-small">View</button>
               <button @click="editPO(po)" class="btn-small">Edit</button>
-              <select v-model="po.status" @change="updatePOStatus(po)" class="status-select">
+              <select v-model="po.status" class="status-select" data-searchable="off" @change="updatePOStatus(po)">
                 <option value="pending">Pending</option>
                 <option value="received">Received</option>
                 <option value="cancelled">Cancelled</option>

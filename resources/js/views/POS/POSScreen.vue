@@ -47,7 +47,10 @@
       </div>
 
       <div class="pos-cart">
-        <h3>🛒 Current Order</h3>
+        <div class="cart-header">
+          <h3>🛒 Current Order</h3>
+          <button v-if="lastReceipt" type="button" class="btn-reprint" @click="printReceipt(lastReceipt)">Reprint Receipt</button>
+        </div>
         <div v-if="cart.length === 0" class="empty-cart">
           <p>No items in cart</p>
         </div>
@@ -88,7 +91,7 @@
 
           <div class="cart-actions">
             <button @click="clearCart" class="btn btn-secondary">Clear</button>
-            <button @click="completeTransaction" class="btn btn-primary">Complete</button>
+            <button @click="completeTransaction" class="btn btn-primary">Complete & Print</button>
           </div>
         </div>
       </div>
@@ -99,6 +102,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import api from '../../api';
+import { useAuthStore } from '../../stores/authStore';
 
 const searchProduct = ref('');
 const selectedCategories = ref(['All']);
@@ -107,6 +111,9 @@ const paymentMethod = ref('cash');
 const products = ref([]);
 const loadingProducts = ref(false);
 const loadError = ref('');
+const lastReceipt = ref(null);
+
+const authStore = useAuthStore();
 
 const categories = computed(() => {
   const uniqueCategories = [...new Set(products.value.map((product) => product.category || 'Others'))];
@@ -220,12 +227,159 @@ const calculateSubtotal = () => {
   return cart.value.reduce((sum, item) => sum + (item.price * item.qty), 0);
 };
 
+const formatCurrency = (amount) => `₱${Number(amount || 0).toFixed(2)}`;
+
+const formatPaymentMethodLabel = (method) => {
+  const labels = {
+    cash: 'Cash',
+    card: 'Card',
+    cod: 'COD',
+  };
+
+  return labels[method] || String(method || '').toUpperCase();
+};
+
+const escapeHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const buildReceiptData = () => {
+  const issuedAt = new Date();
+  const subtotal = calculateSubtotal();
+
+  return {
+    receiptNumber: `POS-${issuedAt.getFullYear()}${String(issuedAt.getMonth() + 1).padStart(2, '0')}${String(issuedAt.getDate()).padStart(2, '0')}-${issuedAt.getTime().toString().slice(-6)}`,
+    issuedAt: issuedAt.toLocaleString('en-PH', {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }),
+    cashier: authStore.user?.name || authStore.user?.username || 'Cashier',
+    paymentMethod: formatPaymentMethodLabel(paymentMethod.value),
+    items: cart.value.map((item) => ({
+      name: item.name,
+      qty: Number(item.qty || 0),
+      price: Number(item.price || 0),
+      subtotal: Number(item.price || 0) * Number(item.qty || 0),
+    })),
+    subtotal,
+    total: subtotal,
+  };
+};
+
+const buildReceiptHtml = (receipt) => {
+  const itemsMarkup = receipt.items.map((item) => `
+      <tr>
+        <td>${escapeHtml(item.name)}</td>
+        <td class="num">${item.qty}</td>
+        <td class="num">${formatCurrency(item.price)}</td>
+        <td class="num">${formatCurrency(item.subtotal)}</td>
+      </tr>
+    `).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Walk-In POS Receipt</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #111827; }
+    .receipt { max-width: 420px; margin: 0 auto; }
+    .header { text-align: center; margin-bottom: 16px; }
+    .header h1 { margin: 0 0 4px; font-size: 24px; }
+    .header p { margin: 0; color: #4b5563; font-size: 12px; }
+    .meta { margin: 16px 0; font-size: 12px; }
+    .meta-row { display: flex; justify-content: space-between; margin-bottom: 4px; gap: 12px; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 12px; }
+    th, td { border-bottom: 1px dashed #d1d5db; padding: 8px 0; text-align: left; vertical-align: top; }
+    .num { text-align: right; white-space: nowrap; }
+    .totals { margin-top: 16px; }
+    .total-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
+    .grand-total { font-weight: 700; font-size: 16px; border-top: 2px solid #111827; padding-top: 8px; }
+    .footer { margin-top: 20px; text-align: center; color: #4b5563; font-size: 12px; }
+    @media print {
+      body { padding: 0; }
+      .receipt { max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="receipt">
+    <div class="header">
+      <h1>LiamKai</h1>
+      <p>Walk-In POS Receipt</p>
+    </div>
+
+    <div class="meta">
+      <div class="meta-row"><span>Receipt No.</span><span>${escapeHtml(receipt.receiptNumber)}</span></div>
+      <div class="meta-row"><span>Date</span><span>${escapeHtml(receipt.issuedAt)}</span></div>
+      <div class="meta-row"><span>Cashier</span><span>${escapeHtml(receipt.cashier)}</span></div>
+      <div class="meta-row"><span>Payment</span><span>${escapeHtml(receipt.paymentMethod)}</span></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th class="num">Qty</th>
+          <th class="num">Price</th>
+          <th class="num">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${itemsMarkup}</tbody>
+    </table>
+
+    <div class="totals">
+      <div class="total-row"><span>Subtotal</span><span>${formatCurrency(receipt.subtotal)}</span></div>
+      <div class="total-row grand-total"><span>Total</span><span>${formatCurrency(receipt.total)}</span></div>
+    </div>
+
+    <div class="footer">Thank you for your purchase.</div>
+  </div>
+  <script>
+    window.addEventListener('load', function () {
+      window.print();
+    });
+    window.addEventListener('afterprint', function () {
+      window.close();
+    });
+  <\/script>
+</body>
+</html>`;
+};
+
+const printReceipt = (receipt) => {
+  const printWindow = window.open('', '_blank', 'width=520,height=720');
+
+  if (!printWindow) {
+    alert('Unable to open the print window. Please allow pop-ups and try again.');
+    return false;
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(buildReceiptHtml(receipt));
+  printWindow.document.close();
+  return true;
+};
+
 const clearCart = () => {
   cart.value = [];
 };
 
 const completeTransaction = () => {
-  alert(`Transaction completed\nTotal: ₱${calculateSubtotal().toFixed(2)}\nPayment: ${paymentMethod.value}`);
+  const receipt = buildReceiptData();
+  lastReceipt.value = receipt;
+
+  if (!printReceipt(receipt)) {
+    return;
+  }
+
   clearCart();
   paymentMethod.value = 'cash';
 };
@@ -416,6 +570,33 @@ onMounted(() => {
 .pos-cart h3 {
   margin: 0 0 15px 0;
   color: #0a1d37;
+}
+
+.cart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.cart-header h3 {
+  margin-bottom: 0;
+}
+
+.btn-reprint {
+  border: 1px solid #d8dde3;
+  background: #f8fafc;
+  color: #27344d;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-reprint:hover {
+  background: #eef2f7;
 }
 
 .empty-cart {

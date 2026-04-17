@@ -15,9 +15,7 @@
     <div v-else class="table-container">
       <div class="filter-section">
         <label>Filter Category: 
-          <select v-model="selectedCategory">
-            <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
-          </select>
+          <SearchableSelect v-model="selectedCategory" :options="categoryOptions" placeholder="Filter Category" />
         </label>
       </div>
       <table class="data-table">
@@ -101,6 +99,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import api from '../../api';
+import SearchableSelect from '../../components/SearchableSelect.vue';
 
 const products = ref([]);
 const loading = ref(false);
@@ -117,6 +116,11 @@ const form = ref({
   retail_price: null,
   wholesale_price: null,
 });
+
+const categoryOptions = computed(() => categories.map((category) => ({
+  value: category,
+  label: category,
+})));
 
 // New: filter state and categories list
 const selectedCategory = ref('All');

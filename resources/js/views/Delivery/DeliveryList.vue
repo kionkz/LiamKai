@@ -32,7 +32,7 @@
         </div>
 
         <div class="filter-group">
-          <select v-model="selectedStatus" class="status-select">
+          <select v-model="selectedStatus" class="status-select" data-searchable="off">
             <option value="all">All</option>
             <option value="en-route">En-route</option>
             <option value="delivered">Delivered</option>

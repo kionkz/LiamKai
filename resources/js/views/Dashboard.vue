@@ -38,7 +38,6 @@
           </button>
           <div v-if="purchasingOpen" class="sub-links">
             <router-link to="/purchasing" :class="{ active: activeMenu === 'suppliers-profile' }" @click="setActiveMenu('suppliers-profile')">Suppliers Profile</router-link>
-            <router-link to="/purchasing/payments" :class="{ active: activeMenu === 'purchasing-payment' }" @click="setActiveMenu('purchasing-payment')">Payment</router-link>
             <router-link to="/reports" :class="{ active: activeMenu === 'sales-report' }" @click="setActiveMenu('sales-report')">Sales Report</router-link>
           </div>
         </li>
@@ -182,10 +181,6 @@ const syncActiveMenuByRoute = () => {
     activeMenu.value = 'stock-movement';
     return;
   }
-  if (route.path === '/purchasing/payments') {
-    activeMenu.value = 'purchasing-payment';
-    return;
-  }
   if (route.path === '/reports') {
     activeMenu.value = 'sales-report';
     return;
@@ -235,7 +230,6 @@ const pageTitle = computed(() => {
     'DeliveryList': '🚚 Delivery Management',
     'DeliveryDetails': '🚚 Delivery Details',
     'PurchasingDashboard': '📦 Purchasing',
-    'PurchasingPayment': '💳 Purchasing Payment',
     'CreatePurchaseOrder': '📦 Create Purchase Order',
     'ReceivingReport': '📦 Receiving Report',
     'InventoryView': '🧊 Current Stock',
@@ -289,6 +283,7 @@ watch(() => route.path, () => {
   top: 0;
   z-index: 20;
   flex-shrink: 0;
+  overflow-y: auto;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
 }
 

@@ -30,12 +30,11 @@
           <h3>Customer Information</h3>
           <div class="form-group">
             <label>Customer *</label>
-            <select v-model="form.customer_id" required>
-              <option value="">Select a customer...</option>
-              <option v-for="customer in customers" :key="customer.id" :value="customer.id">
-                {{ customer.name }}
-              </option>
-            </select>
+            <SearchableSelect
+              v-model="form.customer_id"
+              :options="customerOptions"
+              placeholder="Search customer..."
+            />
           </div>
           <div class="form-group">
             <label>Order Type *</label>
@@ -49,12 +48,12 @@
         <div class="form-section">
           <h3>Products</h3>
           <div v-for="(item, idx) in form.items" :key="idx" class="product-item">
-            <select v-model="form.items[idx].product_id" required @change="updateProductPrice(idx)">
-              <option value="">Select product...</option>
-              <option v-for="product in products" :key="product.id" :value="product.id">
-                {{ product.name }} (R: ₱{{ product.pricing?.[0]?.retail_price || product.base_price }} | W: ₱{{ product.pricing?.[0]?.wholesale_price || product.base_price }})
-              </option>
-            </select>
+            <SearchableSelect
+              v-model="form.items[idx].product_id"
+              :options="productOptions"
+              placeholder="Search product..."
+              @change="updateProductPrice(idx)"
+            />
             <div class="quantity-input-wrap">
               <input
                 v-model.number="form.items[idx].quantity"
@@ -75,10 +74,8 @@
               Stock not enough. Available: {{ getAvailableStock(form.items[idx].product_id).toFixed(2) }} kg
             </p>
           </div>
-          <p class="type-rule-hint">
-            {{ form.type === 'retail'
-              ? 'Retail orders must be below 10kg per item.'
-              : 'Wholesale orders must be 10kg or more per item.' }}
+          <p v-if="form.type" class="type-rule-hint">
+            {{ getOrderTypeRuleMessage(form.type) }}
           </p>
           <button type="button" @click="addProduct" class="btn btn-secondary">+ Add Product</button>
         </div>
@@ -126,9 +123,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
+import { findOrderTypeQuantityViolation, getApiErrorMessage, getOrderTypeRuleMessage } from '../../utils/orderValidation';
+import SearchableSelect from '../../components/SearchableSelect.vue';
 
 const router = useRouter();
 const props = defineProps({
@@ -141,7 +140,7 @@ const emit = defineEmits(['close', 'created']);
 
 const form = ref({
   customer_id: '',
-  type: 'retail',
+  type: '',
   items: [{ product_id: '', quantity: 1, unit_price: 0 }],
   is_urgent: false,
   notes: ''
@@ -152,6 +151,16 @@ const products = ref([]);
 const loading = ref(false);
 const error = ref('');
 const submitting = ref(false);
+
+const customerOptions = computed(() => customers.value.map((customer) => ({
+  value: customer.id,
+  label: customer.name,
+})));
+
+const productOptions = computed(() => products.value.map((product) => ({
+  value: product.id,
+  label: `${product.name} (R: ₱${product.pricing?.[0]?.retail_price || product.base_price} | W: ₱${product.pricing?.[0]?.wholesale_price || product.base_price})`,
+})));
 
 const loadFormData = async () => {
   loading.value = true;
@@ -230,24 +239,11 @@ const hasAnyInsufficientStock = () => {
 };
 
 const hasTypeQuantityViolation = (item) => {
-  const qty = Number(item?.quantity || 0);
-  if (form.value.type === 'retail') {
-    return qty >= 10;
-  }
-  return qty < 10;
+  return Boolean(findOrderTypeQuantityViolation([item], form.value.type));
 };
 
 const getTypeQuantityError = () => {
-  const violatingIndex = form.value.items.findIndex((item) => hasTypeQuantityViolation(item));
-  if (violatingIndex === -1) {
-    return '';
-  }
-
-  const label = form.value.type === 'retail'
-    ? 'Retail orders must be below 10kg per item.'
-    : 'Wholesale orders must be 10kg or more per item.';
-
-  return `Item ${violatingIndex + 1}: ${label}`;
+  return findOrderTypeQuantityViolation(form.value.items, form.value.type)?.message || '';
 };
 
 watch(() => form.value.type, () => {
@@ -278,6 +274,11 @@ const calculateTotal = () => {
 };
 
 const submitOrder = async () => {
+  if (!form.value.type) {
+    alert('Please select an order type.');
+    return;
+  }
+
   if (hasAnyInsufficientStock()) {
     alert('Stock not enough for one or more products. Please reduce quantity.');
     return;
@@ -314,7 +315,7 @@ const submitOrder = async () => {
       alert(response.data.error || response.data.message || 'Failed to create order');
     }
   } catch (err) {
-    alert(err.response?.data?.error || err.response?.data?.message || 'Failed to create order');
+    alert(getApiErrorMessage(err, 'Failed to create order'));
   } finally {
     submitting.value = false;
   }
@@ -334,6 +335,10 @@ onMounted(() => {
 .create-order-container.modal-mode {
   max-width: 100%;
   margin: 0;
+  padding-top: 0;
+  padding-right: 24px;
+  padding-bottom: 24px;
+  padding-left: 24px;
 }
 
 .create-order-container.modal-mode .header-section {
@@ -359,8 +364,12 @@ onMounted(() => {
   justify-content: space-between;
   background: #fff;
   border-bottom: 1px solid #e7ebf2;
-  padding: 14px 0 12px;
-  margin-bottom: 14px;
+  padding: 18px 0 16px;
+  margin: 0 -24px 18px;
+  padding-right: 24px;
+  padding-left: 24px;
+  min-height: 88px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
 }
 
 .modal-sticky-title h1 {
@@ -393,6 +402,11 @@ onMounted(() => {
   border-radius: 8px;
   padding: 30px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.create-order-container.modal-mode .card {
+  position: relative;
+  z-index: 1;
 }
 
 .card h1 {

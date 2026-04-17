@@ -19,12 +19,7 @@
             <h2>Supplier Information</h2>
             <div class="form-group">
               <label>Select Supplier *</label>
-              <select v-model="formData.supplier_id" required class="form-select">
-                <option value="">-- Choose a supplier --</option>
-                <option v-for="supplier in suppliers" :key="supplier.id" :value="supplier.id">
-                  {{ supplier.name }} ({{ supplier.contact_person }})
-                </option>
-              </select>
+              <SearchableSelect v-model="formData.supplier_id" :options="supplierOptions" placeholder="-- Choose a supplier --" />
               <p class="field-help">Select the supplier you're ordering from</p>
             </div>
 
@@ -71,12 +66,7 @@
               <tbody>
                 <tr v-for="(item, idx) in formData.items" :key="idx" class="item-row">
                   <td>
-                    <select v-model="item.product_id" required class="form-select">
-                      <option value="">Select Product</option>
-                      <option v-for="product in products" :key="product.id" :value="product.id">
-                        {{ product.name }}
-                      </option>
-                    </select>
+                    <SearchableSelect v-model="item.product_id" :options="purchaseProductOptions" placeholder="Select Product" />
                   </td>
                   <td>
                     <input v-model.number="item.quantity" type="number" min="0.01" step="0.01" required class="form-input number" placeholder="0.00 kg" />
@@ -156,6 +146,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
+import SearchableSelect from '../../components/SearchableSelect.vue';
 
 const router = useRouter();
 
@@ -173,6 +164,16 @@ const formData = ref({
   items: [],
   order_date: new Date().toISOString().split('T')[0],
 });
+
+const supplierOptions = computed(() => suppliers.value.map((supplier) => ({
+  value: supplier.id,
+  label: `${supplier.name} (${supplier.contact_person})`,
+})));
+
+const purchaseProductOptions = computed(() => products.value.map((product) => ({
+  value: product.id,
+  label: product.name,
+})));
 
 // Computed Properties
 const subtotal = computed(() => {

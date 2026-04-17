@@ -14,7 +14,6 @@ const ProductList = () => import('../views/Products/ProductList.vue');
 const DeliveryList = () => import('../views/Delivery/DeliveryList.vue');
 const DeliveryDetails = () => import('../views/Delivery/DeliveryDetails.vue');
 const PurchasingDashboard = () => import('../views/Purchasing/PurchasingDashboard.vue');
-const PurchasingPayment = () => import('../views/Purchasing/BlankPurchasingPayment.vue');
 const CreatePurchaseOrder = () => import('../views/Purchasing/CreatePurchaseOrder.vue');
 const EditPurchaseOrder = () => import('../views/Purchasing/CreatePurchaseOrder.vue');
 const ReceivingReport = () => import('../views/Purchasing/ReceivingReport.vue');
@@ -90,11 +89,6 @@ const routes = [
         path: 'purchasing',
         name: 'PurchasingDashboard',
         component: PurchasingDashboard,
-      },
-      {
-        path: 'purchasing/payments',
-        name: 'PurchasingPayment',
-        component: PurchasingPayment,
       },
       {
         path: 'purchasing/create',

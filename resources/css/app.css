@@ -10,6 +10,149 @@
         'Segoe UI Symbol', 'Noto Color Emoji';
 }
 
+:root {
+    --select-border: #cfd8e3;
+    --select-border-strong: #e57c2a;
+    --select-text: #10243e;
+    --select-muted: #7d8ca1;
+    --select-surface: #ffffff;
+    --select-surface-soft: #f8fafc;
+    --select-highlight: #fff5ec;
+    --select-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
+    --select-focus-shadow: 0 0 0 4px rgba(229, 124, 42, 0.16);
+}
+
+.choices {
+    width: auto;
+    max-width: 100%;
+    margin-bottom: 0;
+    font-size: 14px;
+    color: var(--select-text);
+    position: relative;
+}
+
+.choices__inner {
+    min-height: 48px;
+    height: 48px;
+    padding: 10px 44px 10px 14px;
+    border: 1px solid var(--select-border);
+    border-radius: 12px;
+    background: var(--select-surface);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    display: flex;
+    align-items: center;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.choices:hover .choices__inner {
+    border-color: #b8c6d8;
+    background: var(--select-surface-soft);
+}
+
+.choices.is-focused .choices__inner,
+.choices.is-open .choices__inner {
+    border-color: var(--select-border-strong);
+    box-shadow: var(--select-focus-shadow);
+    background: var(--select-surface);
+}
+
+.choices__list--single {
+    padding: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+}
+
+.choices__list--single .choices__item {
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.choices__placeholder {
+    color: var(--select-muted);
+    opacity: 1;
+}
+
+.choices[data-type*='select-one']::after {
+    right: 16px;
+    margin-top: -3px;
+    border-color: var(--select-muted) transparent transparent;
+}
+
+.choices[data-type*='select-one'].is-open::after {
+    margin-top: -7px;
+    border-color: transparent transparent var(--select-muted);
+}
+
+.choices__list--dropdown,
+.choices__list[aria-expanded] {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 8px;
+    border: 1px solid #dbe3ec;
+    border-radius: 14px;
+    background: var(--select-surface);
+    box-shadow: var(--select-shadow);
+    overflow: hidden;
+    z-index: 40;
+}
+
+.choices__list--dropdown .choices__input,
+.choices__list[aria-expanded] .choices__input {
+    display: block;
+    margin: 10px;
+    width: calc(100% - 20px);
+    min-height: 40px;
+    border: 1px solid var(--select-border);
+    border-radius: 10px;
+    background: var(--select-surface-soft);
+    padding: 9px 12px;
+    font-size: 14px;
+    color: var(--select-text);
+}
+
+.choices__list--dropdown .choices__input:focus,
+.choices__list[aria-expanded] .choices__input:focus {
+    border-color: var(--select-border-strong);
+    box-shadow: var(--select-focus-shadow);
+    outline: none;
+}
+
+.choices__list--dropdown .choices__item,
+.choices__list[aria-expanded] .choices__item {
+    padding: 11px 14px;
+    font-size: 14px;
+    color: var(--select-text);
+}
+
+.choices__list--dropdown .choices__item--selectable.is-highlighted,
+.choices__list[aria-expanded] .choices__item--selectable.is-highlighted {
+    background: var(--select-highlight);
+    color: var(--select-text);
+}
+
+.choices__list--dropdown .choices__item--disabled,
+.choices__list[aria-expanded] .choices__item--disabled {
+    color: var(--select-muted);
+    opacity: 0.7;
+}
+
+.choices.is-disabled .choices__inner,
+.choices.is-disabled:hover .choices__inner {
+    background: #f3f4f6;
+    border-color: #d6dbe3;
+    color: #8a94a6;
+    box-shadow: none;
+}
+
+.choices[data-type*='select-one'].is-open .choices__inner {
+    border-radius: 12px;
+}
+
 /* Keep modal/card headers visible while the modal body scrolls. */
 .modal-content > .modal-header,
 .modal > .modal-header {

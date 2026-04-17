@@ -114,10 +114,8 @@
         <form @submit.prevent="saveOrderEdit">
           <div class="form-group">
             <label>Order Type</label>
-            <select v-model="orderEditForm.order_type">
-              <option value="retail">Retail</option>
-              <option value="wholesale">Wholesale</option>
-            </select>
+            <SearchableSelect v-model="orderEditForm.order_type" :options="orderTypeOptions" placeholder="Select order type" />
+            <p class="field-note">{{ getOrderTypeRuleMessage(orderEditForm.order_type) }}</p>
           </div>
           <div class="form-group">
             <label>Delivery Address</label>
@@ -171,10 +169,7 @@
 
           <div class="form-group">
             <label for="type">Customer Type *</label>
-            <select v-model="editForm.type" id="type" required>
-              <option value="retail">Retail</option>
-              <option value="wholesale">Wholesale</option>
-            </select>
+            <SearchableSelect v-model="editForm.type" :options="orderTypeOptions" placeholder="Select customer type" />
           </div>
 
           <div class="form-group">
@@ -201,6 +196,8 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../api';
+import { findOrderTypeQuantityViolation, getApiErrorMessage, getOrderTypeRuleMessage } from '../../utils/orderValidation';
+import SearchableSelect from '../../components/SearchableSelect.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -228,6 +225,11 @@ const editForm = ref({
   type: 'retail',
   credit_limit: 0
 });
+
+const orderTypeOptions = [
+  { value: 'retail', label: 'Retail' },
+  { value: 'wholesale', label: 'Wholesale' },
+];
 
 const normalizePhPhone = (value) => {
   const digits = String(value || '').replace(/\D/g, '');
@@ -298,6 +300,12 @@ const openEditOrderModal = () => {
 const saveOrderEdit = async () => {
   if (!selectedOrder.value) return;
 
+  const quantityViolation = findOrderTypeQuantityViolation(selectedOrder.value.order_items || selectedOrder.value.items || [], orderEditForm.value.order_type);
+  if (quantityViolation) {
+    alert(quantityViolation.message);
+    return;
+  }
+
   savingOrderEdit.value = true;
   try {
     const response = await api.put(`/orders/${selectedOrder.value.id}`, orderEditForm.value);
@@ -308,7 +316,7 @@ const saveOrderEdit = async () => {
       alert(response.data.message || 'Failed to update order');
     }
   } catch (err) {
-    alert(err.response?.data?.message || 'Failed to update order');
+    alert(getApiErrorMessage(err, 'Failed to update order'));
   } finally {
     savingOrderEdit.value = false;
   }
@@ -416,6 +424,12 @@ onMounted(() => {
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
+}
+
+.field-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #6c757d;
 }
 
 .profile-info {

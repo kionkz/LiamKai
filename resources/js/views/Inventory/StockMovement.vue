@@ -7,7 +7,7 @@
     <div class="filters-bar">
       <div class="filter-group">
         <label>Movement Type:</label>
-        <select v-model="filterType">
+        <select v-model="filterType" data-searchable="off">
           <option value="">All Types</option>
           <option value="stock_in">Stock In</option>
           <option value="stock_out">Stock Out</option>

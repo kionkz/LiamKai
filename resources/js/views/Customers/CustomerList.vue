@@ -13,6 +13,17 @@
       <button @click="openDeleteSelectedCustomer" class="btn btn-danger">Delete</button>
     </div>
 
+    <div class="search-bar">
+      <input
+        v-model="searchQuery"
+        type="text"
+        placeholder="Search customers by name, email, phone, address..."
+        @keyup.enter="applySearch"
+      />
+      <button @click="applySearch" class="btn btn-primary">Search</button>
+      <button v-if="searchQuery" @click="clearSearch" class="btn btn-secondary">Clear</button>
+    </div>
+
     <!-- Loading State -->
     <div v-if="loading" class="loading-state">
       <p>Loading customers...</p>
@@ -98,7 +109,7 @@
 
           <div class="form-group">
             <label for="type">Customer Type *</label>
-            <select v-model="customerForm.type" id="type" required>
+            <select v-model="customerForm.type" id="type" data-searchable="off">
               <option value="retail">Retail</option>
               <option value="wholesale">Wholesale</option>
             </select>
@@ -156,6 +167,7 @@ const deleting = ref(false);
 const editingCustomer = ref(null);
 const customerToDelete = ref(null);
 const selectedCustomerId = ref(null);
+const searchQuery = ref('');
 const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
 
 const customerForm = ref({
@@ -224,7 +236,11 @@ const fetchCustomers = async (page = 1) => {
   error.value = '';
   try {
     const response = await api.get('/customers', {
-      params: { page, per_page: pagination.value.per_page }
+      params: {
+        page,
+        per_page: pagination.value.per_page,
+        search: searchQuery.value.trim(),
+      }
     });
     if (response.data.success) {
       customers.value = response.data.data;
@@ -242,6 +258,17 @@ const fetchCustomers = async (page = 1) => {
 const changePage = (page) => {
   if (page < 1 || page > pagination.value.last_page) return;
   fetchCustomers(page);
+};
+
+const applySearch = () => {
+  selectedCustomerId.value = null;
+  fetchCustomers(1);
+};
+
+const clearSearch = () => {
+  searchQuery.value = '';
+  selectedCustomerId.value = null;
+  fetchCustomers(1);
 };
 
 const saveCustomer = async () => {
@@ -362,6 +389,35 @@ onMounted(() => {
   background: #ffffff;
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.search-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 14px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.search-bar input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.3s ease;
+  background-color: #fafbfc;
+}
+
+.search-bar input:focus {
+  outline: none;
+  border-color: #e57c2a;
+  box-shadow: 0 0 0 3px rgba(229, 124, 42, 0.1);
+  background-color: white;
 }
 
 .pagination {
@@ -731,6 +787,15 @@ onMounted(() => {
   .btn {
     padding: 10px 20px;
     font-size: 13px;
+  }
+
+  .actions-bar,
+  .search-bar {
+    flex-wrap: wrap;
+  }
+
+  .search-bar input {
+    width: 100%;
   }
 
   .data-table th,

@@ -8,7 +8,7 @@
 
     <div class="filters">
       <input v-model="searchQuery" type="text" placeholder="Search employees..." class="search-box" />
-      <select v-model="roleFilter" class="filter-select">
+      <select v-model="roleFilter" class="filter-select" data-searchable="off">
         <option value="">All Roles</option>
         <option value="admin">Admin</option>
         <option value="sales">Sales</option>
@@ -81,14 +81,7 @@
 
           <div class="form-group">
             <label>Role</label>
-            <select v-model="formData.role" required>
-              <option value="">Select Role</option>
-              <option value="admin">Admin</option>
-              <option value="sales">Sales</option>
-              <option value="delivery">Delivery</option>
-              <option value="inventory">Inventory</option>
-              <option value="purchasing">Purchasing</option>
-            </select>
+            <SearchableSelect v-model="formData.role" :options="employeeRoleOptions" placeholder="Select Role" />
           </div>
 
           <div class="form-group">
@@ -166,6 +159,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import api from '../../api';
+import SearchableSelect from '../../components/SearchableSelect.vue';
 
 const searchQuery = ref('');
 const roleFilter = ref('');
@@ -190,6 +184,15 @@ const formData = ref({
   password: '',
   active: true,
 });
+
+const employeeRoleOptions = [
+  { value: '', label: 'Select Role' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'sales', label: 'Sales' },
+  { value: 'delivery', label: 'Delivery' },
+  { value: 'inventory', label: 'Inventory' },
+  { value: 'purchasing', label: 'Purchasing' },
+];
 
 const loginLogs = ref([
   { timestamp: '2024-02-18T14:30:00', ip: '192.168.1.100', device: 'Chrome on Windows', location: 'Manila, PH' },

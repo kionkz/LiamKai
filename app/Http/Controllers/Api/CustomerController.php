@@ -7,17 +7,33 @@ use App\Http\Requests\StoreCustomerRequest;
 use App\Http\Requests\UpdateCustomerRequest;
 use App\Models\Customer;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class CustomerController extends Controller
 {
     /**
      * Display all customers
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
-            $customers = Customer::with('orders')
-                ->paginate(15);
+            $search = trim((string) $request->input('search', ''));
+            $perPage = (int) $request->input('per_page', 15);
+
+            $query = Customer::with('orders');
+
+            if ($search !== '') {
+                $query->where(function ($customerQuery) use ($search) {
+                    $customerQuery
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere('address', 'like', "%{$search}%")
+                        ->orWhere('type', 'like', "%{$search}%");
+                });
+            }
+
+            $customers = $query->orderBy('name')->paginate($perPage);
             
             return response()->json([
                 'success' => true,

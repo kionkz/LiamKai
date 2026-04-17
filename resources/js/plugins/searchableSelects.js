@@ -2,8 +2,30 @@ import Choices from 'choices.js';
 import 'choices.js/public/assets/styles/choices.min.css';
 
 const instances = new WeakMap();
-const optionCountAtInit = new WeakMap();
+const optionSignatureAtInit = new WeakMap();
+const initialWidths = new WeakMap();
 let listenersBound = false;
+let mutationObserver = null;
+let enhancementQueued = false;
+const pendingRoots = new Set();
+
+const getOptionSignature = (select) => Array.from(select.options ?? [])
+  .map((option) => [option.value, option.text, option.disabled, option.selected].join('::'))
+  .join('||');
+
+const getRenderedWidth = (element) => {
+  const width = element.getBoundingClientRect().width;
+  return width > 0 ? `${Math.round(width)}px` : null;
+};
+
+const applyStoredWidth = (select, choices) => {
+  const width = initialWidths.get(select);
+  const container = choices?.containerOuter?.element;
+  if (!width || !container) return;
+
+  container.style.width = width;
+  container.style.maxWidth = '100%';
+}
 
 const getSelectElements = (root) => {
   if (!root) return [];
@@ -19,14 +41,18 @@ const isEnhanceable = (select) => {
   return true;
 };
 
-const enhanceSelect = (select) => {
-  if (!isEnhanceable(select) || instances.has(select)) return;
+const shouldEnhance = (select) => {
+  if (!isEnhanceable(select)) return false;
+  return (select.options?.length ?? 0) > 0;
+};
 
-  // Avoid initializing too early (many lists are filled asynchronously).
-  if ((select.options?.length ?? 0) <= 1) return;
+const enhanceSelect = (select) => {
+  if (!shouldEnhance(select) || instances.has(select)) return;
 
   // Skip if this select is already wrapped by Choices markup.
   if (select.closest('.choices')) return;
+
+  initialWidths.set(select, getRenderedWidth(select));
 
   const choices = new Choices(select, {
     shouldSort: false,
@@ -41,7 +67,8 @@ const enhanceSelect = (select) => {
   });
 
   instances.set(select, choices);
-  optionCountAtInit.set(select, select.options.length);
+  optionSignatureAtInit.set(select, getOptionSignature(select));
+  applyStoredWidth(select, choices);
 };
 
 const destroySelect = (select) => {
@@ -50,15 +77,29 @@ const destroySelect = (select) => {
 
   instance.destroy();
   instances.delete(select);
-  optionCountAtInit.delete(select);
+  optionSignatureAtInit.delete(select);
+  initialWidths.delete(select);
 };
 
 const refreshIfStale = (select) => {
-  if (!instances.has(select)) return;
+  if (!isEnhanceable(select)) {
+    destroySelect(select);
+    return;
+  }
 
-  const previousCount = optionCountAtInit.get(select) ?? 0;
-  const currentCount = select.options?.length ?? 0;
-  if (currentCount === previousCount) return;
+  if (!shouldEnhance(select)) {
+    destroySelect(select);
+    return;
+  }
+
+  if (!instances.has(select)) {
+    enhanceSelect(select);
+    return;
+  }
+
+  const previousSignature = optionSignatureAtInit.get(select) ?? '';
+  const currentSignature = getOptionSignature(select);
+  if (currentSignature === previousSignature) return;
 
   destroySelect(select);
   enhanceSelect(select);
@@ -90,6 +131,29 @@ const enhanceFromEventTarget = (target) => {
   }
 };
 
+const processRoot = (root) => {
+  getSelectElements(root).forEach((select) => {
+    refreshIfStale(select);
+    enhanceSelect(select);
+  });
+};
+
+const queueEnhancement = (root = document) => {
+  pendingRoots.add(root);
+
+  if (enhancementQueued) return;
+
+  enhancementQueued = true;
+  requestAnimationFrame(() => {
+    pendingRoots.forEach((pendingRoot) => {
+      processRoot(pendingRoot);
+    });
+
+    pendingRoots.clear();
+    enhancementQueued = false;
+  });
+};
+
 export const setupSearchableSelects = () => {
   if (!listenersBound) {
     // Lazy enhancement ensures newly-rendered selects always become searchable
@@ -104,4 +168,34 @@ export const setupSearchableSelects = () => {
 
     listenersBound = true;
   }
+
+  if (!mutationObserver) {
+    mutationObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.target instanceof HTMLSelectElement) {
+          queueEnhancement(mutation.target);
+          return;
+        }
+
+        if (mutation.target instanceof HTMLElement || mutation.target instanceof DocumentFragment) {
+          queueEnhancement(mutation.target);
+        }
+
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+            queueEnhancement(node);
+          }
+        });
+      });
+    });
+
+    mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['disabled'],
+    });
+  }
+
+  queueEnhancement(document);
 };
