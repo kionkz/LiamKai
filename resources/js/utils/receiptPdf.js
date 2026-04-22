@@ -6,6 +6,8 @@ const amountFormatter = new Intl.NumberFormat('en-PH', {
   maximumFractionDigits: 2,
 });
 
+const currencySymbols = new Set(['₱', 'PHP', 'P']);
+
 const formatAmountCell = (value) => {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return `PHP ${amountFormatter.format(value)}`;
@@ -25,7 +27,10 @@ const formatAmountCell = (value) => {
     return text;
   }
 
-  return `${prefix}${amountFormatter.format(parsed)}${suffix}`;
+  const trimmedPrefix = prefix.trim();
+  const normalizedPrefix = currencySymbols.has(trimmedPrefix) ? 'PHP ' : prefix;
+
+  return `${normalizedPrefix}${amountFormatter.format(parsed)}${suffix}`;
 };
 
 export const exportReceiptPdf = ({
@@ -82,10 +87,10 @@ export const exportReceiptPdf = ({
       lineWidth: 0.4,
     },
     columnStyles: {
-      0: { cellWidth: 245, halign: 'left' },
-      1: { cellWidth: 60, halign: 'center' },
-      2: { cellWidth: 100, halign: 'right' },
-      3: { cellWidth: 100, halign: 'right' },
+      0: { cellWidth: 220, halign: 'left' },
+      1: { cellWidth: 75, halign: 'center' },
+      2: { cellWidth: 105, halign: 'right' },
+      3: { cellWidth: 105, halign: 'right' },
     },
   });
 

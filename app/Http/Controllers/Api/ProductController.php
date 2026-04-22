@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 
 use App\Support\PricingMath;
+use App\Support\ProductSku;
 
 class ProductController extends Controller
 {
@@ -72,8 +73,10 @@ class ProductController extends Controller
                 $productData['expiration_date'] = now()
                     ->addMonths(config('operations.inventory.default_product_expiration_months', 6))
                     ->toDateString();
+                unset($productData['sku']);
 
                 $product = Product::create($productData);
+                $product->update(['sku' => ProductSku::forProduct($product)]);
 
                 $product->inventory()->create([
                     'product_id' => $product->id,

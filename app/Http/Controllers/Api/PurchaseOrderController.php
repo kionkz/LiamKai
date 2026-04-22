@@ -394,7 +394,12 @@ class PurchaseOrderController extends Controller
 
             $inventory = Inventory::firstOrCreate(
                 ['product_id' => $item->product_id],
-                ['quantity' => 0, 'quantity_on_hand' => 0, 'reorder_point' => 0, 'status' => 'available']
+                [
+                    'quantity' => 0,
+                    'quantity_on_hand' => 0,
+                    'reorder_point' => config('operations.inventory.default_reorder_point', 5),
+                    'status' => 'available',
+                ]
             );
 
             if ($acceptedQuantity > 0) {

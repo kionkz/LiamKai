@@ -26,6 +26,7 @@ class UpdateProductRequest extends FormRequest
 
         $this->merge([
             'unit_of_measure' => $normalizedUnit,
+            'sku' => $this->filled('sku') ? trim((string) $this->input('sku')) : null,
         ]);
     }
 
@@ -38,6 +39,7 @@ class UpdateProductRequest extends FormRequest
     {
         return [
             'name' => 'sometimes|required|string|max:255|unique:products,name,' . $this->route('product'),
+            'sku' => 'sometimes|nullable|string|max:100|unique:products,sku,' . $this->route('product'),
             'category_id' => 'sometimes|required|integer|exists:categories,id',
             'description' => 'nullable|string',
             'unit_of_measure' => 'sometimes|required|string|in:kg,Per pack',

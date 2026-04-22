@@ -159,11 +159,12 @@ class EmployeeController extends Controller
             ]);
 
             $employee->update($validated);
+            $this->syncAccountStatusWithEmployee($employee);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Employee updated successfully',
-                'data' => $employee,
+                'data' => $employee->fresh('user'),
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -239,7 +240,7 @@ class EmployeeController extends Controller
                 'email'               => $employee->email,
                 'password'            => Hash::make($validated['password']),
                 'role'                => $employee->role,
-                'account_status'      => 'active',
+                'account_status'      => $employee->status === 'active' ? 'active' : 'inactive',
                 'must_change_password' => true,
             ]);
 
@@ -282,6 +283,61 @@ class EmployeeController extends Controller
     }
 
     /**
+     * Reset username/password for an existing employee account.
+     */
+    public function resetAccountCredentials(Request $request, string $id): JsonResponse
+    {
+        try {
+            $employee = Employee::with('user')->findOrFail($id);
+
+            if (!$employee->user) {
+                return response()->json(['success' => false, 'message' => 'This employee has no system account.'], 422);
+            }
+
+            $validated = $request->validate([
+                'username' => [
+                    'required',
+                    'string',
+                    'max:255',
+                    Rule::unique('users', 'username')->ignore($employee->user->id),
+                ],
+                'password' => 'required|string|min:8|confirmed',
+            ]);
+
+            $employee->user->update([
+                'username' => $validated['username'],
+                'password' => Hash::make($validated['password']),
+                'must_change_password' => true,
+            ]);
+            $employee->user->tokens()->delete();
+
+            $emailSent = $this->sendCredentialsEmail($employee, $validated['username'], $validated['password']);
+
+            $message = $emailSent
+                ? "Credentials reset for {$employee->name}. New login details have been sent to {$employee->email}."
+                : "Credentials reset for {$employee->name}. Warning: credentials email could not be sent to {$employee->email} — please share credentials manually.";
+
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'email_sent' => $emailSent,
+                'data' => [
+                    'user_id' => $employee->user->id,
+                    'username' => $employee->user->username,
+                    'role' => $employee->user->role,
+                    'account_status' => $employee->user->account_status,
+                ],
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['success' => false, 'message' => 'Employee not found.'], 404);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $e->errors()], 422);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Error resetting credentials: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Revoke (delete) the system account for an employee.
      */
     public function revokeAccount(string $id): JsonResponse
@@ -317,6 +373,14 @@ class EmployeeController extends Controller
             }
 
             $newStatus = $employee->user->account_status === 'active' ? 'inactive' : 'active';
+
+            if ($newStatus === 'active' && $employee->status !== 'active') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Reactivate the employee before activating their account.',
+                ], 422);
+            }
+
             $employee->user->update(['account_status' => $newStatus]);
 
             if ($newStatus === 'inactive') {
@@ -332,6 +396,43 @@ class EmployeeController extends Controller
             return response()->json(['success' => false, 'message' => 'Employee not found.'], 404);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'Error updating account status: ' . $e->getMessage()], 500);
+        }
+    }
+
+    private function syncAccountStatusWithEmployee(Employee $employee): void
+    {
+        if (!array_key_exists('status', $employee->getChanges())) {
+            return;
+        }
+
+        $employee->loadMissing('user');
+
+        if (!$employee->user) {
+            return;
+        }
+
+        $accountStatus = $employee->status === 'active' ? 'active' : 'inactive';
+        $employee->user->update(['account_status' => $accountStatus]);
+
+        if ($accountStatus === 'inactive') {
+            $employee->user->tokens()->delete();
+        }
+    }
+
+    private function sendCredentialsEmail(Employee $employee, string $username, string $temporaryPassword): bool
+    {
+        try {
+            Mail::to($employee->email)->send(new EmployeeCredentialsMail(
+                employeeName:      $employee->name,
+                username:          $username,
+                temporaryPassword: $temporaryPassword,
+                loginUrl:          config('app.url') . '/login',
+            ));
+
+            return true;
+        } catch (\Exception $mailException) {
+            Log::error('Failed to send credentials email to ' . $employee->email . ': ' . $mailException->getMessage());
+            return false;
         }
     }
 }

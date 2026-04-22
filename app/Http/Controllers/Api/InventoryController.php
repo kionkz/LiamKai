@@ -103,7 +103,7 @@ class InventoryController extends Controller
             $validated = $request->validate([
                 'reorder_point' => 'sometimes|required|numeric|min:0',
                 'adjustment_quantity' => 'sometimes|numeric|min:0',
-                'adjustment_reason' => 'required_with:adjustment_quantity|string|max:255',
+                'adjustment_reason' => 'required_with:adjustment_quantity|in:damage,theft',
                 'adjustment_note' => 'sometimes|nullable|string|max:1000',
             ]);
             
@@ -119,11 +119,17 @@ class InventoryController extends Controller
                 $adjustmentQty = (float) $validated['adjustment_quantity'];
                 
                 if ($adjustmentQty > 0) {
-                    $inventory->applyQuantityDelta($adjustmentQty);
-                    $movementType = 'stock_in';
-                } elseif ($adjustmentQty < 0) {
-                    $inventory->applyQuantityDelta($adjustmentQty);
-                    $movementType = 'stock_out';
+                    $currentQuantity = (float) ($inventory->quantity_on_hand ?? $inventory->quantity ?? 0);
+
+                    if ($adjustmentQty > $currentQuantity) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Adjustment quantity cannot exceed current stock.'
+                        ], 422);
+                    }
+
+                    $inventory->applyQuantityDelta(-$adjustmentQty);
+                    $movementType = $validated['adjustment_reason'] === 'damage' ? 'adjustment' : 'stock_out';
                 } else {
                     return response()->json([
                         'success' => false,
@@ -132,7 +138,11 @@ class InventoryController extends Controller
                 }
                 
                 // Record stock movement
-                $movementNotes = $validated['adjustment_reason'];
+                $movementLabels = [
+                    'damage' => 'Damage/Defect',
+                    'theft' => 'Theft/Loss',
+                ];
+                $movementNotes = $movementLabels[$validated['adjustment_reason']] ?? $validated['adjustment_reason'];
                 if (!empty($validated['adjustment_note'])) {
                     $movementNotes .= ' | ' . $validated['adjustment_note'];
                 }
@@ -140,16 +150,11 @@ class InventoryController extends Controller
                 $inventory->stockMovements()->create([
                     'type' => $movementType,
                     'quantity' => abs($adjustmentQty),
-                    'movement_type' => 'manual_adjustment',
-                    'reason' => $validated['adjustment_reason'],
+                    'movement_type' => $validated['adjustment_reason'] === 'damage' ? 'defect' : 'theft',
+                    'reason' => $movementLabels[$validated['adjustment_reason']] ?? $validated['adjustment_reason'],
                     'reference' => 'MANUAL-ADJUSTMENT',
                     'notes' => $movementNotes,
                 ]);
-                
-                // Keep this conditional for databases that include last_restock_date.
-                if ($movementType === 'stock_in' && Schema::hasColumn('inventory', 'last_restock_date')) {
-                    $inventory->update(['last_restock_date' => now()]);
-                }
             }
             
             return response()->json([

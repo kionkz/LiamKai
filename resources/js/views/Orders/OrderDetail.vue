@@ -8,7 +8,7 @@
       <div class="header-actions">
         <button @click="editOrder" class="btn btn-secondary">Edit Order</button>
         <button @click="exportOrderPdf" class="btn btn-secondary">Export PDF</button>
-        <button @click="deleteOrder" class="btn btn-danger">Archive</button>
+        <button @click="deleteOrder" class="btn btn-danger" :disabled="!canCancelOrder">Cancel Order</button>
       </div>
     </div>
 
@@ -41,7 +41,7 @@
           </div>
           <div class="info-row">
             <span class="label">Status:</span>
-            <span class="status" :class="order.status">{{ order.status }}</span>
+            <span class="status" :class="order.order_status">{{ formatOrderStatus(order.order_status) }}</span>
           </div>
         </div>
         <div class="order-total">
@@ -105,16 +105,16 @@
       </div>
     </div>
 
-    <!-- Archive Confirmation Modal -->
+    <!-- Cancel Confirmation Modal -->
     <div v-if="showDeleteConfirm" class="modal-overlay" @click="showDeleteConfirm = false">
       <div class="modal-content small-modal" @click.stop>
-        <h3>Confirm Archive</h3>
-        <p>Are you sure you want to archive Order #{{ order?.id?.toString().padStart(4, '0') }}?</p>
-        <p class="warning">Archiving restores inventory and removes the order from active lists.</p>
+        <h3>Cancel Order</h3>
+        <p>Are you sure you want to cancel Order #{{ order?.id?.toString().padStart(4, '0') }}?</p>
+        <p class="warning">Cancelling restores inventory and removes the order from active lists.</p>
         <div class="modal-actions">
-          <button @click="showDeleteConfirm = false" class="btn btn-secondary">Cancel</button>
+          <button @click="showDeleteConfirm = false" class="btn btn-secondary">Go Back</button>
           <button @click="confirmDelete" :disabled="deleting" class="btn btn-danger">
-            {{ deleting ? 'Archiving...' : 'Archive Order' }}
+            {{ deleting ? 'Cancelling...' : 'Confirm Cancel' }}
           </button>
         </div>
       </div>
@@ -123,7 +123,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../api';
 import { exportReceiptPdf } from '../../utils/receiptPdf';
@@ -136,6 +136,17 @@ const loading = ref(false);
 const error = ref('');
 const showDeleteConfirm = ref(false);
 const deleting = ref(false);
+
+const canCancelOrder = computed(() => {
+  if (!order.value) return false;
+
+  const hasLogisticsProgress = order.value.fulfillment_status !== 'pending'
+    || order.value.delivery_status !== 'pending';
+  const hasPaymentActivity = ['paid', 'partially_paid', 'utang'].includes(order.value.payment_status)
+    || Number(order.value.outstanding_balance || 0) < Number(order.value.total_amount || 0);
+
+  return !hasLogisticsProgress && !hasPaymentActivity;
+});
 
 const fetchOrder = async () => {
   loading.value = true;
@@ -160,6 +171,12 @@ const editOrder = () => {
 };
 
 const formatCurrency = (value) => `₱${Number(value || 0).toFixed(2)}`;
+
+const formatOrderStatus = (value) => {
+  if (value === 'complete') return 'Complete';
+  if (value === 'cancelled') return 'Cancelled';
+  return 'Pending';
+};
 
 const exportOrderPdf = () => {
   if (!order.value) return;
@@ -187,6 +204,7 @@ const exportOrderPdf = () => {
 };
 
 const deleteOrder = () => {
+  if (!canCancelOrder.value) return;
   showDeleteConfirm.value = true;
 };
 
@@ -197,10 +215,10 @@ const confirmDelete = async () => {
     if (response.data.success) {
       router.push('/orders');
     } else {
-      alert(response.data.message || 'Failed to archive order');
+      alert(response.data.message || 'Failed to cancel order');
     }
   } catch (err) {
-    alert(err.response?.data?.message || 'Failed to archive order');
+    alert(err.response?.data?.message || 'Failed to cancel order');
   } finally {
     deleting.value = false;
   }

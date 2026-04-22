@@ -205,8 +205,8 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(item, idx) in paginatedInventoryItems" :key="`${item.sku}-${idx}`">
-                <td>{{ item.sku }}</td>
+              <tr v-for="(item, idx) in paginatedInventoryItems" :key="`${item.sku || 'no-sku'}-${idx}`">
+                <td>{{ formatSku(item.sku) }}</td>
                 <td>{{ item.name }}</td>
                 <td class="description-cell">{{ item.description || '—' }}</td>
                 <td>{{ formatQuantity(item.quantityOnHand) }}</td>
@@ -455,6 +455,7 @@ const paginatedTopCustomers = computed(() => paginateRows(sortedTopCustomers.val
 
 const formatPeso = (value) => `₱${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatQuantity = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+const formatSku = (value) => value || '—';
 
 const buildParams = () => {
   const params = { period: reportPeriod.value };
@@ -655,7 +656,7 @@ const exportReport = () => {
       startY: currentY,
       head: [['SKU', 'Name', 'Description', 'Qty On Hand', 'Unit Cost', 'Inventory Value', 'Reorder Point']],
       body: sortedInventoryItems.value.map((item) => [
-        item.sku,
+        formatSku(item.sku),
         item.name,
         item.description || '-',
         formatQuantity(item.quantityOnHand),
@@ -746,7 +747,7 @@ const printableContent = computed(() => {
         ['Total Inventory Value', formatPeso(totalInventoryValue.value)],
       ],
       headings: ['SKU', 'Name', 'Description', 'Quantity On Hand', 'Unit Cost', 'Inventory Value', 'Reorder Point'],
-      rows: sortedInventoryItems.value.map((item) => [item.sku, item.name, item.description || '-', formatQuantity(item.quantityOnHand), formatPeso(item.unitCost), formatPeso(item.totalInventoryValue), formatQuantity(item.reorderPoint)]),
+      rows: sortedInventoryItems.value.map((item) => [formatSku(item.sku), item.name, item.description || '-', formatQuantity(item.quantityOnHand), formatPeso(item.unitCost), formatPeso(item.totalInventoryValue), formatQuantity(item.reorderPoint)]),
     };
   }
 

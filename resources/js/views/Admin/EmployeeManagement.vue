@@ -213,8 +213,31 @@
             </span>
           </div>
           <p v-if="accountError" class="state-message error" style="margin-top:8px;">{{ accountError }}</p>
+          <form v-if="showResetCredentialsForm" @submit.prevent="resetAccountCredentials" class="modal-form reset-credentials-form">
+            <div class="form-group">
+              <label>New Username *</label>
+              <input v-model="resetAccountForm.username" type="text" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label>New Temporary Password *</label>
+              <input v-model="resetAccountForm.password" type="password" required minlength="8" autocomplete="new-password" />
+            </div>
+            <div class="form-group">
+              <label>Confirm New Password *</label>
+              <input v-model="resetAccountForm.password_confirmation" type="password" required minlength="8" autocomplete="new-password" />
+            </div>
+            <div class="modal-actions compact-actions">
+              <button type="button" @click="showResetCredentialsForm = false" class="btn btn-secondary">Cancel Reset</button>
+              <button type="submit" :disabled="accountSaving" class="btn btn-primary">
+                {{ accountSaving ? 'Resetting...' : 'Send New Credentials' }}
+              </button>
+            </div>
+          </form>
           <div class="modal-actions">
             <button @click="showAccountModal = false" class="btn btn-secondary">Close</button>
+            <button @click="openResetCredentialsForm" :disabled="accountSaving" class="btn btn-secondary">
+              Reset Credentials
+            </button>
             <button @click="toggleAccountStatus" :disabled="accountSaving" class="btn btn-secondary">
               {{ accountSaving ? 'Updating...' : (selectedEmployee.user.account_status === 'active' ? 'Deactivate Account' : 'Activate Account') }}
             </button>
@@ -251,6 +274,8 @@ const successMessage = ref('');
 const accountError = ref('');
 
 const accountForm = ref({ username: '', password: '', password_confirmation: '' });
+const resetAccountForm = ref({ username: '', password: '', password_confirmation: '' });
+const showResetCredentialsForm = ref(false);
 const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
 const employees = ref([]);
 
@@ -471,6 +496,8 @@ const openCreateAccountModal = () => {
   if (!selectedEmployee.value) return;
   accountError.value = '';
   accountForm.value = { username: '', password: '', password_confirmation: '' };
+  resetAccountForm.value = { username: selectedEmployee.value.user?.username || '', password: '', password_confirmation: '' };
+  showResetCredentialsForm.value = false;
   showAccountModal.value = true;
 };
 
@@ -497,6 +524,49 @@ const createAccount = async () => {
   } catch (error) {
     const errs = error.response?.data?.errors;
     accountError.value = errs ? Object.values(errs).flat().join(' ') : (error.response?.data?.message || 'Failed to create account.');
+  } finally {
+    accountSaving.value = false;
+  }
+};
+
+const openResetCredentialsForm = () => {
+  if (!selectedEmployee.value?.user) return;
+  accountError.value = '';
+  resetAccountForm.value = {
+    username: selectedEmployee.value.user.username || '',
+    password: '',
+    password_confirmation: '',
+  };
+  showResetCredentialsForm.value = true;
+};
+
+const resetAccountCredentials = async () => {
+  if (!selectedEmployee.value?.user) return;
+  accountError.value = '';
+
+  if (resetAccountForm.value.password !== resetAccountForm.value.password_confirmation) {
+    accountError.value = 'Passwords do not match.';
+    return;
+  }
+
+  accountSaving.value = true;
+  try {
+    const response = await api.post(`/employees/${selectedEmployee.value.id}/account/reset-credentials`, resetAccountForm.value);
+    if (!response.data?.success) {
+      accountError.value = response.data?.message || 'Failed to reset credentials.';
+      return;
+    }
+
+    successMessage.value = response.data.message;
+    if (response.data.email_sent === false) {
+      errorMessage.value = `⚠ Email could not be sent to ${selectedEmployee.value.email}. Please share the new credentials manually.`;
+    }
+    showResetCredentialsForm.value = false;
+    showAccountModal.value = false;
+    await loadEmployees(pagination.value.current_page);
+  } catch (error) {
+    const errs = error.response?.data?.errors;
+    accountError.value = errs ? Object.values(errs).flat().join(' ') : (error.response?.data?.message || 'Failed to reset credentials.');
   } finally {
     accountSaving.value = false;
   }

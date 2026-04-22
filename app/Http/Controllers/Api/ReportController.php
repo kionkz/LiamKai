@@ -148,8 +148,6 @@ class ReportController extends Controller
             })
             ->values();
 
-        $productHasSku = Schema::hasColumn('products', 'sku');
-
         $inventoryRows = Inventory::query()
             ->with('product')
             ->get();
@@ -175,14 +173,12 @@ class ReportController extends Controller
         });
 
         $inventoryItems = $inventoryRows
-            ->map(function ($item) use ($productHasSku) {
+            ->map(function ($item) {
                 $quantityOnHand = (float) ($item->quantity_on_hand ?? $item->quantity ?? 0);
                 $unitCost = (float) ($item->product?->base_price ?? 0);
 
                 return [
-                    'sku' => $productHasSku
-                        ? ($item->product?->sku ?: sprintf('SKU-%04d', $item->product_id))
-                        : sprintf('SKU-%04d', $item->product_id),
+                    'sku' => $item->product?->sku,
                     'name' => $item->product?->name ?? 'Unknown Product',
                     'description' => $item->product?->description ?? '',
                     'quantityOnHand' => $quantityOnHand,

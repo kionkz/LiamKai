@@ -19,7 +19,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('product_id')->constrained('products')->onDelete('cascade');
             $table->integer('quantity')->default(0);
-            $table->integer('reorder_point')->default(10);
+            $table->integer('reorder_point')->default(5);
             $table->enum('status', ['available', 'low_stock', 'out_of_stock'])->default('available');
             $table->timestamps();
             $table->unique('product_id');

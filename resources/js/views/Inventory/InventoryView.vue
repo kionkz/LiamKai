@@ -57,8 +57,8 @@
           <thead>
             <tr>
                 <th class="select-column"></th>
-              <th>Product</th>
               <th>SKU</th>
+              <th>Product</th>
               <th>Current Stock</th>
               <th>Reorder Level</th>
               <th>Retail Price</th>
@@ -77,17 +77,17 @@
               <td class="select-column" @click.stop>
                 <input type="checkbox" :checked="selectedProductId === product.id" @change="selectProduct(product)" />
               </td>
+              <td class="sku-cell">{{ formatSku(product.sku) }}</td>
               <td class="name-cell">{{ product.name }}</td>
-              <td>{{ product.sku }}</td>
               <td>{{ product.quantity }}</td>
               <td>{{ product.reorder_level }}</td>
               <td>{{ formatCurrency(product.retail_price) }}</td>
               <td>{{ formatCurrency(product.discount_amount) }}</td>
               <td>{{ formatCurrency(product.discounted_price) }}</td>
               <td>
-                <span v-if="product.quantity <= product.reorder_level" class="status low">Low</span>
-                <span v-else-if="product.quantity > product.reorder_level * 2" class="status high">Adequate</span>
-                <span v-else class="status normal">Normal</span>
+                <span class="status" :class="stockHealth(product.quantity).className">
+                  {{ stockHealth(product.quantity).label }}
+                </span>
               </td>
             </tr>
           </tbody>
@@ -110,11 +110,15 @@
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label>Current Stock:</label>
-            <p class="current-stock">{{ stockTarget?.quantity }} units</p>
+            <label>SKU:</label>
+            <p class="current-stock">{{ formatSku(stockTarget?.sku) }}</p>
           </div>
           <div class="form-group">
-            <label>Adjustment Amount</label>
+            <label>Current Stock:</label>
+            <p class="current-stock">{{ stockTarget?.quantity }} {{ stockTarget?.unit_of_measure || 'units' }}</p>
+          </div>
+          <div class="form-group">
+            <label>Quantity to Deduct</label>
             <div class="adjustment-controls">
               <button @click="adjustmentAmount = Math.max(0, adjustmentAmount - 1)" class="btn-qty" type="button">-</button>
               <input v-model.number="adjustmentAmount" type="number" min="0" @input="adjustmentAmount = Math.max(0, adjustmentAmount || 0)" />
@@ -143,11 +147,15 @@
     <div v-if="showDetailsModal" class="modal-overlay" @click.self="closeDetailsModal">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h2>Product Profile - {{ productDetails?.product?.name }}</h2>
+          <h2>Product Profile - {{ profileProduct.name || 'Product' }}</h2>
           <button @click="closeDetailsModal" class="btn-close">&times;</button>
         </div>
         <div class="modal-body" v-if="productDetails">
           <div class="profile-grid">
+            <div class="form-group">
+              <label>SKU</label>
+              <input v-model="profileForm.sku" type="text" placeholder="Enter SKU" />
+            </div>
             <div class="form-group">
               <label>Product Name</label>
               <input v-model="profileForm.name" type="text" />
@@ -313,18 +321,16 @@ const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 }
 const showDetailsModal = ref(false);
 const productDetails = ref(null);
 const savingProfile = ref(false);
-const profileForm = ref({ name: '', category_id: '', description: '', unit_of_measure: '', reorder_point: 0, retail_price: 0, discount_amount: 0 });
+const profileForm = ref({ sku: '', name: '', category_id: '', description: '', unit_of_measure: '', reorder_point: 0, retail_price: 0, discount_amount: 0 });
 const showStockModal = ref(false);
 const stockTarget = ref(null);
 const adjustmentAmount = ref(0);
-const adjustmentReason = ref('restock');
+const adjustmentReason = ref('damage');
 const adjustmentNotes = ref('');
 
 const adjustmentReasonOptions = [
-  { value: 'restock', label: 'Restock/Receiving' },
-  { value: 'damage', label: 'Damage/Defect Adjustment' },
-  { value: 'loss', label: 'Loss/Theft Adjustment' },
-  { value: 'inventory_count', label: 'Inventory Count Adjustment' },
+  { value: 'damage', label: 'Damage/Defect' },
+  { value: 'theft', label: 'Theft/Loss' },
 ];
 
 const categoryFilters = computed(() => [{ id: 'all', name: 'All' }, ...categories.value]);
@@ -342,9 +348,17 @@ const normalizeUnitOfMeasure = (value) => {
 };
 
 const formatCurrency = (val) => val != null ? '\u20B1' + Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-';
+const formatSku = (value) => value || '—';
+const stockHealth = (quantity) => {
+  const current = Number(quantity || 0);
+  if (current <= 10) return { label: 'Low', className: 'low' };
+  if (current < 30) return { label: 'Adequate', className: 'normal' };
+  return { label: 'High', className: 'high' };
+};
 const newProductDiscountedPrice = computed(() => calculateDiscountedPriceFromAmount(newProductForm.value.retail_price, newProductForm.value.discount_amount));
 const profileDiscountedPrice = computed(() => calculateDiscountedPriceFromAmount(profileForm.value.retail_price, profileForm.value.discount_amount));
-const pricingLogs = computed(() => productDetails.value?.product?.pricingLogs || productDetails.value?.product?.pricing_logs || []);
+const profileProduct = computed(() => productDetails.value?.product || selectedProduct.value || {});
+const pricingLogs = computed(() => profileProduct.value?.pricingLogs || profileProduct.value?.pricing_logs || []);
 
 const filteredProducts = computed(() => {
   return products.value.filter((p) => {
@@ -389,6 +403,7 @@ const fetchProducts = async (page = 1) => {
         const pricing = p.pricing || p.Pricing || [];
         return {
           id: p.id, name: p.name, category: p.category || p.product_category?.name, category_id: p.category_id, sku: p.sku,
+          unit_of_measure: normalizeUnitOfMeasure(p.unit_of_measure),
           quantity: inv.quantity_on_hand ?? inv.quantity ?? 0,
           reorder_level: inv.reorder_point ?? inv.reorder_level ?? 0,
           retail_price: resolveRetailPrice(p),
@@ -419,7 +434,7 @@ const openStockUpdateSelected = () => {
   if (!selectedProduct.value) return;
   stockTarget.value = selectedProduct.value;
   adjustmentAmount.value = 0;
-  adjustmentReason.value = 'restock';
+  adjustmentReason.value = 'damage';
   adjustmentNotes.value = '';
   showStockModal.value = true;
 };
@@ -451,6 +466,7 @@ const openDetailsSelected = async () => {
       productDetails.value = res.data.data;
       const product = res.data.data.product || {};
       profileForm.value = {
+        sku: product.sku || '',
         name: product.name || '',
         category_id: String(product.category_id || ''),
         description: product.description || '',
@@ -475,6 +491,7 @@ const saveProductProfile = async () => {
     const productId = productDetails.value.product.id;
     await api.put(`/products/${productId}`, {
       name: profileForm.value.name,
+      sku: profileForm.value.sku || null,
       category_id: Number(profileForm.value.category_id),
       description: profileForm.value.description || null,
       unit_of_measure: normalizeUnitOfMeasure(profileForm.value.unit_of_measure),
@@ -558,7 +575,7 @@ onMounted(async () => {
 .pagination { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid #edf0f4; }
 .page-info { font-size: 13px; color: #4a5565; }
 .status { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
-.status.low { background-color: #fff3e0; color: #f57c00; }
+.status.low { background-color: #fee2e2; color: #b91c1c; }
 .status.normal { background-color: #e8f5e9; color: #388e3c; }
 .status.high { background-color: #e3f2fd; color: #1976d2; }
 .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.3s; }

@@ -97,6 +97,9 @@
         </div>
         <div class="selection-actions">
           <button @click="viewPO()" class="btn btn-secondary" :disabled="!selectedPurchaseOrder">View</button>
+          <button @click="exportPurchaseReceipt()" class="btn btn-secondary" :disabled="!canExportPurchaseReceipt">
+            Receipt
+          </button>
           <button @click="editPO()" class="btn btn-secondary" :disabled="!selectedPurchaseOrder || selectedPurchaseOrder.status === 'received'">Edit</button>
           <button
             @click="receivePO()"
@@ -293,6 +296,10 @@
               <label>Expected Delivery:</label>
               <span>{{ formatDate(viewingPO.expected_delivery_date) }}</span>
             </div>
+            <div class="detail-row" v-if="viewingPO.status === 'received'">
+              <label>Received By:</label>
+              <span>{{ viewingPO.received_by || 'N/A' }}</span>
+            </div>
             <div class="detail-row">
               <label>Notes:</label>
               <span>{{ viewingPO.notes || 'N/A' }}</span>
@@ -319,6 +326,7 @@
           </table>
         </div>
         <div class="modal-actions">
+          <button @click="exportPurchaseReceipt(viewingPO)" class="btn btn-secondary" :disabled="viewingPO.status !== 'received'">Receipt</button>
           <button @click="showViewModal = false" class="btn btn-secondary">Close</button>
         </div>
       </div>
@@ -382,6 +390,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
+import { exportReceiptPdf } from '../../utils/receiptPdf';
 
 const router = useRouter();
 
@@ -453,6 +462,8 @@ const filteredPurchaseOrders = computed(() => {
 const selectedPurchaseOrder = computed(() => {
   return purchaseOrders.value.find((po) => po.id === selectedPOId.value) || null;
 });
+
+const canExportPurchaseReceipt = computed(() => selectedPurchaseOrder.value?.status === 'received');
 
 const poTotalPages = computed(() => Math.max(1, Math.ceil(filteredPurchaseOrders.value.length / PAGE_SIZE)));
 
@@ -608,6 +619,51 @@ const editPO = (po = selectedPurchaseOrder.value) => {
 const receivePO = (po = selectedPurchaseOrder.value) => {
   if (!po) return;
   router.push(`/purchasing/receive/${po.id}`);
+};
+
+const formatCurrency = (value) => `₱${Number(value || 0).toFixed(2)}`;
+
+const exportPurchaseReceipt = async (po = selectedPurchaseOrder.value) => {
+  if (!po || po.status !== 'received') return;
+
+  let purchaseOrder = po;
+  try {
+    const response = await api.get(`/purchase-orders/${po.id}`);
+    if (response.data?.success) {
+      purchaseOrder = response.data.data;
+    }
+  } catch {
+    errorMessage.value = 'Failed to load purchase order receipt details.';
+    setTimeout(() => errorMessage.value = '', 3000);
+    return;
+  }
+
+  const items = purchaseOrder.purchase_order_items || [];
+  exportReceiptPdf({
+    title: `Purchase Receipt ${purchaseOrder.order_number || `PO #${purchaseOrder.id}`}`,
+    subtitle: 'Supplier Purchase Order Receipt',
+    filename: `purchase-receipt-${purchaseOrder.order_number || purchaseOrder.id}.pdf`,
+    meta: [
+      { label: 'Supplier', value: purchaseOrder.supplier?.name || 'N/A' },
+      { label: 'PO Number', value: purchaseOrder.order_number || `#${purchaseOrder.id}` },
+      { label: 'Order Date', value: formatDate(purchaseOrder.order_date) },
+      { label: 'Received Date', value: formatDate(purchaseOrder.actual_delivery_date) },
+      { label: 'Received By', value: purchaseOrder.received_by || 'N/A' },
+    ],
+    items: items.map((item) => {
+      const quantity = Number(item.quantity || 0);
+      const unitPrice = Number(item.purchase_price ?? item.unit_cost ?? 0);
+      return {
+        name: item.product?.name || `Product #${item.product_id}`,
+        qty: `${quantity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${item.product?.unit_of_measure || 'kg'}`,
+        unitPrice,
+        amount: quantity * unitPrice,
+      };
+    }),
+    totals: [
+      { label: 'Total', value: Number(purchaseOrder.total_amount || 0) },
+    ],
+  });
 };
 
 const deletePO = async (id) => {

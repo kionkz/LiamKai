@@ -37,7 +37,6 @@ class OrderController extends Controller
             $sortDirection = $validated['sort_direction'] ?? 'desc';
 
             $ordersQuery = Order::with('customer', 'orderItems.product', 'payments', 'delivery')
-                ->where('fulfillment_status', '!=', 'cancelled')
                 ->leftJoin('customers', 'customers.id', '=', 'orders.customer_id')
                 ->select('orders.*');
 
@@ -278,21 +277,39 @@ class OrderController extends Controller
     }
 
     /**
-     * Archive an order (restores inventory and marks as cancelled)
+     * Cancel an order, restore inventory, and keep the record for audit history.
      */
     public function destroy(string $id): JsonResponse
     {
         try {
-            DB::beginTransaction();
+            $order = Order::with('orderItems', 'delivery', 'payments')->findOrFail($id);
 
-            $order = Order::with('orderItems', 'delivery')->findOrFail($id);
-
-            if (in_array($order->fulfillment_status, ['completed', 'cancelled'], true)) {
+            if ($order->fulfillment_status === 'cancelled') {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot archive {$order->fulfillment_status} order"
+                    'message' => 'Order is already cancelled.'
                 ], 422);
             }
+
+            if ($order->fulfillment_status !== 'pending' || $order->delivery_status !== 'pending') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only orders with no logistics progress can be cancelled.'
+                ], 422);
+            }
+
+            $hasPaymentActivity = $order->payments->isNotEmpty()
+                || in_array($order->payment_status, ['paid', 'partially_paid', 'utang'], true)
+                || (float) $order->outstanding_balance < (float) $order->total_amount;
+
+            if ($hasPaymentActivity) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only orders with no payment activity can be cancelled.'
+                ], 422);
+            }
+
+            DB::beginTransaction();
 
             foreach ($order->orderItems as $item) {
                 $inventory = Inventory::where('product_id', $item->product_id)->firstOrFail();
@@ -300,9 +317,9 @@ class OrderController extends Controller
 
                 $inventory->stockMovements()->create([
                     'type' => 'stock_in',
-                    'movement_type' => 'order_archive',
+                    'movement_type' => 'order_cancel',
                     'quantity' => $item->quantity,
-                    'reason' => 'Archived order stock restoration',
+                    'reason' => 'Cancelled order stock restoration',
                     'reference' => "ORDER-{$order->id}",
                     'reference_id' => $order->id,
                     'notes' => "Stock restored for cancelled order #{$order->id}",
@@ -321,13 +338,13 @@ class OrderController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Order archived and inventory restored'
+                'message' => 'Order cancelled and inventory restored'
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
                 'success' => false,
-                'message' => 'Error archiving order',
+                'message' => 'Error cancelling order',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -365,6 +382,7 @@ class OrderController extends Controller
         $formatted['fulfillment_type'] = $order->fulfillment_type ?? 'delivery';
         $formatted['fulfillment_status'] = $order->fulfillment_status
             ?? $this->mapDeliveryStatusToFulfillmentStatus($order->delivery_status ?? 'pending');
+        $formatted['order_status'] = $this->resolveOrderStatus($order);
         $formatted['items'] = $order->orderItems->map(function (OrderItem $item) {
             return [
                 'id' => $item->id,
@@ -379,5 +397,17 @@ class OrderController extends Controller
         })->values()->all();
 
         return $formatted;
+    }
+
+    private function resolveOrderStatus(Order $order): string
+    {
+        if ($order->fulfillment_status === 'cancelled' || $order->delivery_status === 'cancelled') {
+            return 'cancelled';
+        }
+
+        $isDelivered = $order->fulfillment_status === 'completed' || $order->delivery_status === 'delivered';
+        $isPaid = $order->payment_status === 'paid' || (float) $order->outstanding_balance <= 0;
+
+        return $isDelivered && $isPaid ? 'complete' : 'pending';
     }
 }

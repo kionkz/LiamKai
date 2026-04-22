@@ -9,6 +9,23 @@
 
       <form @submit.prevent="submit" class="form">
         <div class="form-group">
+          <label for="current_password">Current Password</label>
+          <div class="password-field">
+            <input
+              v-model="form.current_password"
+              :type="showCurrent ? 'text' : 'password'"
+              id="current_password"
+              placeholder="Enter your current password"
+              required
+              autocomplete="current-password"
+            />
+            <button type="button" class="toggle-btn" @click="showCurrent = !showCurrent">
+              {{ showCurrent ? 'Hide' : 'Show' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
           <label for="password">New Password</label>
           <div class="password-field">
             <input
@@ -64,10 +81,11 @@ import { useAuthStore } from '../../stores/authStore';
 const router = useRouter();
 const authStore = useAuthStore();
 
-const form = ref({ password: '', password_confirmation: '' });
+const form = ref({ current_password: '', password: '', password_confirmation: '' });
 const saving = ref(false);
 const error = ref('');
 const success = ref('');
+const showCurrent = ref(false);
 const showPassword = ref(false);
 const showConfirm = ref(false);
 

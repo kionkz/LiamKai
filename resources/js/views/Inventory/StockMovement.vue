@@ -192,12 +192,13 @@ const formatDate = (dateStr) => {
 const getTypeLabel = (movement) => {
   if (movement.movement_type === 'defect') return 'Defect';
   if (movement.movement_type === 'shortage') return 'Shortage';
+  if (movement.movement_type === 'theft') return 'Theft/Loss';
   const labels = { stock_in: 'Stock In', stock_out: 'Stock Out', adjustment: 'Adjustment' };
   return labels[movement.type] || movement.type;
 };
 
 const getQuantityDisplay = (movement) => {
-  if (movement.movement_type === 'defect' || movement.movement_type === 'shortage' || movement.type === 'stock_out') {
+  if (movement.movement_type === 'defect' || movement.movement_type === 'shortage' || movement.movement_type === 'theft' || movement.type === 'stock_out') {
     return `-${movement.quantity.toFixed(2)}`;
   }
   return `+${movement.quantity.toFixed(2)}`;

@@ -31,8 +31,18 @@
         </div>
 
         <div class="form-group full-width">
+          <label for="current_password">Current Password</label>
+          <input id="current_password" v-model="form.current_password" type="password" placeholder="Required only when changing password" autocomplete="current-password" />
+        </div>
+
+        <div class="form-group full-width">
           <label for="password">New Password (optional)</label>
-          <input id="password" v-model="form.password" type="password" minlength="8" placeholder="Leave blank to keep current password" />
+          <input id="password" v-model="form.password" type="password" minlength="8" placeholder="Leave blank to keep current password" autocomplete="new-password" />
+        </div>
+
+        <div class="form-group full-width">
+          <label for="password_confirmation">Confirm New Password</label>
+          <input id="password_confirmation" v-model="form.password_confirmation" type="password" minlength="8" placeholder="Repeat your new password" autocomplete="new-password" />
         </div>
 
         <p v-if="successMessage" class="state-msg success full-width">{{ successMessage }}</p>
@@ -62,7 +72,9 @@ const form = ref({
   name: '',
   username: '',
   email: '',
+  current_password: '',
   password: '',
+  password_confirmation: '',
 });
 
 const loadProfile = async () => {
@@ -90,12 +102,24 @@ const saveProfile = async () => {
   saveError.value = '';
   successMessage.value = '';
 
+  if (form.value.password && form.value.password !== form.value.password_confirmation) {
+    saveError.value = 'New passwords do not match.';
+    return;
+  }
+
+  if (form.value.password && !form.value.current_password) {
+    saveError.value = 'Current password is required to change your password.';
+    return;
+  }
+
   try {
     const payload = {
       name: form.value.name,
       username: form.value.username,
       email: form.value.email,
+      current_password: form.value.password ? form.value.current_password : null,
       password: form.value.password || null,
+      password_confirmation: form.value.password ? form.value.password_confirmation : null,
     };
 
     const response = await api.put('/profile', payload);
@@ -110,6 +134,8 @@ const saveProfile = async () => {
       }
 
       form.value.password = '';
+      form.value.password_confirmation = '';
+      form.value.current_password = '';
       successMessage.value = response.data.message || 'Profile updated successfully.';
     } else {
       saveError.value = response.data?.message || 'Unable to save profile.';

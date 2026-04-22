@@ -10,7 +10,7 @@
         <button @click="openEditModal" class="btn btn-secondary" :disabled="!selectedOrder">Edit</button>
         <button @click="openSummaryModal" class="btn btn-secondary" :disabled="!selectedOrder">View</button>
         <button @click="printReceipt" class="btn btn-secondary" :disabled="!selectedOrder">Print Receipt</button>
-        <button @click="openDeleteConfirm" class="btn btn-danger" :disabled="!selectedOrder">Archive</button>
+        <button @click="openDeleteConfirm" class="btn btn-danger" :disabled="!canCancelSelectedOrder">Cancel Order</button>
       </div>
     </div>
 
@@ -58,7 +58,7 @@
             <th>Scheduled</th>
             <th>Total</th>
             <th>Payment</th>
-            <th>Logistics</th>
+            <th>Status</th>
             <th>Order Date</th>
           </tr>
         </thead>
@@ -70,7 +70,7 @@
             v-for="order in orders"
             :key="order.id"
             @click="selectOrder(order)"
-            :class="{ 'selected-row': selectedOrderId === order.id }"
+            :class="{ 'selected-row': selectedOrderId === order.id, 'cancelled-row': order.order_status === 'cancelled' }"
           >
             <td class="select-column" @click.stop>
               <input type="checkbox" :checked="selectedOrderId === order.id" @change="selectOrder(order)" />
@@ -82,7 +82,7 @@
             <td>{{ formatScheduled(order.scheduled_for) }}</td>
             <td>₱{{ Number(order.total_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</td>
             <td><span class="pay-status" :class="order.payment_status">{{ formatPaymentStatus(order.payment_status) }}</span></td>
-            <td><span class="status" :class="order.fulfillment_status">{{ formatFulfillmentStatus(order.fulfillment_status) }}</span></td>
+            <td><span class="status" :class="order.order_status">{{ formatOrderStatus(order.order_status) }}</span></td>
             <td>{{ formatOrderDate(order.order_date || order.created_at) }}</td>
           </tr>
         </tbody>
@@ -111,6 +111,7 @@
             <p><strong>Pricing:</strong> {{ formatPricingType(selectedOrder.type) }}</p>
             <p><strong>Fulfillment:</strong> {{ formatFulfillmentType(selectedOrder.fulfillment_type) }}</p>
             <p><strong>Scheduled:</strong> {{ formatScheduled(selectedOrder.scheduled_for) }}</p>
+            <p><strong>Status:</strong> {{ formatOrderStatus(selectedOrder.order_status) }}</p>
             <p><strong>Logistics Status:</strong> {{ formatFulfillmentStatus(selectedOrder.fulfillment_status) }}</p>
             <p v-if="selectedOrder.delivery_address"><strong>Delivery Address:</strong> {{ selectedOrder.delivery_address }}</p>
             <p v-if="selectedOrder.notes"><strong>Notes:</strong> {{ selectedOrder.notes }}</p>
@@ -183,11 +184,12 @@
 
     <div v-if="showDeleteConfirm" class="modal-overlay" @click="showDeleteConfirm = false">
       <div class="modal-content small-modal" @click.stop>
-        <h3>Confirm Archive</h3>
-        <p>Archive selected order #{{ selectedOrder?.id?.toString().padStart(4, '0') }}?</p>
+        <h3>Cancel Order</h3>
+        <p>Cancel selected order #{{ selectedOrder?.id?.toString().padStart(4, '0') }}?</p>
+        <p class="warning-text">This will mark the order as cancelled and return all ordered quantities to inventory.</p>
         <div class="modal-actions">
-          <button @click="showDeleteConfirm = false" class="btn btn-secondary">Cancel</button>
-          <button @click="confirmDelete" :disabled="deleting" class="btn btn-danger">{{ deleting ? 'Archiving...' : 'Archive Order' }}</button>
+          <button @click="showDeleteConfirm = false" class="btn btn-secondary">Go Back</button>
+          <button @click="confirmDelete" :disabled="deleting" class="btn btn-danger">{{ deleting ? 'Cancelling...' : 'Confirm Cancel' }}</button>
         </div>
       </div>
     </div>
@@ -231,6 +233,16 @@ const fulfillmentTypeOptions = [
 ];
 
 const selectedOrder = computed(() => orders.value.find((order) => order.id === selectedOrderId.value) || null);
+const canCancelSelectedOrder = computed(() => {
+  if (!selectedOrder.value) return false;
+
+  const hasLogisticsProgress = selectedOrder.value.fulfillment_status !== 'pending'
+    || selectedOrder.value.delivery_status !== 'pending';
+  const hasPaymentActivity = ['paid', 'partially_paid', 'utang'].includes(selectedOrder.value.payment_status)
+    || Number(selectedOrder.value.outstanding_balance || 0) < Number(selectedOrder.value.total_amount || 0);
+
+  return !hasLogisticsProgress && !hasPaymentActivity;
+});
 
 const formatOrderDate = (value) => {
   if (!value) return '--';
@@ -258,6 +270,13 @@ const formatPricingType = (value) => value === 'wholesale' ? 'Wholesale' : 'Reta
 const formatFulfillmentStatus = (value) => {
   if (value === 'in_progress') return 'In Progress';
   if (value === 'completed') return 'Completed';
+  if (value === 'cancelled') return 'Cancelled';
+  return 'Pending';
+};
+
+const formatOrderStatus = (value) => {
+  if (value === 'complete') return 'Complete';
+  if (value === 'cancelled') return 'Cancelled';
   return 'Pending';
 };
 
@@ -415,7 +434,7 @@ const printReceipt = async () => {
 };
 
 const openDeleteConfirm = () => {
-  if (!selectedOrder.value) return;
+  if (!canCancelSelectedOrder.value) return;
   showDeleteConfirm.value = true;
 };
 
@@ -431,9 +450,9 @@ const confirmDelete = async () => {
       await fetchOrders(targetPage);
       return;
     }
-    alert(response.data.message || 'Failed to archive order');
+    alert(response.data.message || 'Failed to cancel order');
   } catch (err) {
-    alert(err.response?.data?.message || 'Failed to archive order');
+    alert(err.response?.data?.message || 'Failed to cancel order');
   } finally {
     deleting.value = false;
   }
@@ -561,6 +580,19 @@ onMounted(() => fetchOrders(1));
   outline: 2px solid #e57c2a;
 }
 
+.cancelled-row {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.cancelled-row td {
+  color: #6b7280;
+}
+
+.cancelled-row:hover {
+  background: #e5e7eb !important;
+}
+
 .select-column {
   width: 52px;
   text-align: center;
@@ -593,7 +625,9 @@ onMounted(() => fetchOrders(1));
 .badge.pickup { background: #ecfdf3; color: #027a48; }
 .status.pending { background: #fff3e0; color: #ef6c00; }
 .status.in_progress { background: #e1f5fe; color: #0277bd; }
-.status.completed { background: #e8f5e9; color: #2e7d32; }
+.status.completed,
+.status.complete { background: #e8f5e9; color: #2e7d32; }
+.status.cancelled { background: #e5e7eb; color: #4b5563; }
 
 .btn {
   padding: 10px 16px;
@@ -657,6 +691,13 @@ onMounted(() => fetchOrders(1));
 }
 
 .summary-block p { margin: 6px 0; }
+
+.warning-text {
+  margin: 10px 0 0;
+  color: #9f1239;
+  font-size: 14px;
+  line-height: 1.45;
+}
 
 .summary-modal {
   width: 620px;

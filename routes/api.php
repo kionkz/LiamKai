@@ -140,6 +140,7 @@ Route::prefix('employees')->middleware(['auth:sanctum', 'role:admin'])->group(fu
     Route::patch('{employee}', [EmployeeController::class, 'update'])->name('employees.update.patch');
     Route::delete('{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy');
     Route::post('{employee}/account', [EmployeeController::class, 'createAccount'])->name('employees.account.create');
+    Route::post('{employee}/account/reset-credentials', [EmployeeController::class, 'resetAccountCredentials'])->name('employees.account.reset-credentials');
     Route::delete('{employee}/account', [EmployeeController::class, 'revokeAccount'])->name('employees.account.revoke');
     Route::patch('{employee}/account/toggle-status', [EmployeeController::class, 'toggleAccountStatus'])->name('employees.account.toggle-status');
 });

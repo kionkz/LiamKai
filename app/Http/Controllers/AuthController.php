@@ -106,14 +106,23 @@ class AuthController extends Controller
                 'email',
                 Rule::unique('users', 'email')->ignore($user->id),
             ],
-            'password' => ['nullable', 'string', 'min:8'],
+            'current_password' => ['required_with:password', 'nullable', 'string'],
+            'password' => ['nullable', 'string', 'min:8', 'confirmed'],
+            'password_confirmation' => ['required_with:password', 'nullable', 'string'],
         ]);
 
         $user->name = $validated['name'];
-    $user->username = $validated['username'];
+        $user->username = $validated['username'];
         $user->email = $validated['email'];
 
         if (!empty($validated['password'])) {
+            if (!Hash::check($validated['current_password'] ?? '', $user->password)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Current password is incorrect.',
+                ], 422);
+            }
+
             $user->password = Hash::make($validated['password']);
             $user->must_change_password = false;
             // Invalidate old tokens after password change.
@@ -150,9 +159,17 @@ class AuthController extends Controller
         $user = $request->user();
 
         $validated = $request->validate([
+            'current_password'      => ['required', 'string'],
             'password'              => ['required', 'string', 'min:8', 'confirmed'],
             'password_confirmation' => ['required', 'string'],
         ]);
+
+        if (!Hash::check($validated['current_password'], $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Current password is incorrect.',
+            ], 422);
+        }
 
         $user->password             = Hash::make($validated['password']);
         $user->must_change_password = false;
