@@ -1,0 +1,166 @@
+@startuml LiamKai_Use_Case_Diagram
+' ============================================================
+'  LiamKai — Use Case Diagram (Updated from code, 2026-04)
+'  Modules: User & Auth · Customer Ordering · Administration
+'           Inventory · Purchasing & Suppliers · Delivery Logistics
+'  Financial Management module removed (no longer in scope).
+' ============================================================
+
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam usecase {
+  BackgroundColor #FAFAFA
+  BorderColor     #555555
+  FontSize        12
+}
+skinparam package {
+  BackgroundColor #F0F4FF
+  BorderColor     #4A6FA5
+  FontStyle       bold
+}
+
+' ─────────────────────────────────────────────────────────────
+' ACTORS
+' ─────────────────────────────────────────────────────────────
+actor "Employee\n(all roles)" as Employee
+actor "Customer Order\nManager\n[sales]"    as SalesActor
+actor "Store Owner\n[admin]"                as AdminActor
+actor "Inventory\nManager\n[inventory]"    as InvActor
+actor "Purchasing\nOrder Manager\n[purchasing]" as PurchActor
+actor "Delivery\nDriver\n[delivery]"        as DelivActor
+
+' ─────────────────────────────────────────────────────────────
+' MODULE 1 — USER & AUTHENTICATION
+' ─────────────────────────────────────────────────────────────
+package "User & Authentication Module" {
+  usecase "Log In"              as UC_Login
+  usecase "Log Out"             as UC_Logout
+  usecase "View My Profile"     as UC_ViewProfile
+  usecase "Update My Profile"   as UC_UpdateProfile
+  usecase "Change Password"     as UC_ChangePassword
+}
+
+Employee --> UC_Login
+Employee --> UC_Logout
+Employee --> UC_ViewProfile
+UC_ViewProfile ..> UC_UpdateProfile   : <<extend>>
+UC_ViewProfile ..> UC_ChangePassword  : <<extend>>
+
+' ─────────────────────────────────────────────────────────────
+' MODULE 2 — CUSTOMER ORDERING MODULE
+' ─────────────────────────────────────────────────────────────
+package "Customer Ordering Module" {
+  usecase "Manage Customer Profile"      as UC_ManageCust
+  usecase "Create Customer Order"        as UC_CreateOrder
+  usecase "Select Order Type\n(Retail / Wholesale)" as UC_OrderType
+  usecase "View Order History"           as UC_ViewOrders
+  usecase "Update Order Status"          as UC_UpdateOrder
+  usecase "Cancel Order"                 as UC_CancelOrder
+  usecase "Process Payment"              as UC_Payment
+  usecase "View Payment Management"      as UC_ViewPayments
+  usecase "Delete Payment"               as UC_DeletePayment
+}
+
+SalesActor --> UC_ManageCust
+SalesActor --> UC_CreateOrder
+SalesActor --> UC_ViewOrders
+SalesActor --> UC_UpdateOrder
+SalesActor --> UC_CancelOrder
+SalesActor --> UC_Payment
+SalesActor --> UC_ViewPayments
+UC_CreateOrder ..> UC_OrderType   : <<extend>>
+UC_Payment     ..> UC_DeletePayment : <<extend>>
+
+' ─────────────────────────────────────────────────────────────
+' MODULE 3 — ADMINISTRATION MODULE
+' ─────────────────────────────────────────────────────────────
+package "Administration Module" {
+  usecase "Manage Employees"            as UC_ManageEmp
+  usecase "Create Employee\nLogin Account" as UC_CreateAccount
+  usecase "Revoke Employee\nLogin Account" as UC_RevokeAccount
+  usecase "Toggle Account Status\n(Active / Inactive)" as UC_ToggleStatus
+  usecase "Manage Products"             as UC_ManageProducts
+  usecase "Manage Categories"           as UC_ManageCats
+  usecase "Generate Sales Report"       as UC_SalesReport
+  usecase "View Analytics"              as UC_Analytics
+  usecase "View Dashboard Summary"      as UC_Dashboard
+}
+
+AdminActor --> UC_ManageEmp
+AdminActor --> UC_ManageProducts
+AdminActor --> UC_SalesReport
+AdminActor --> UC_Analytics
+AdminActor --> UC_Dashboard
+PurchActor --> UC_Analytics
+PurchActor --> UC_Dashboard
+UC_ManageEmp     ..> UC_CreateAccount : <<extend>>
+UC_ManageEmp     ..> UC_RevokeAccount : <<extend>>
+UC_ManageEmp     ..> UC_ToggleStatus  : <<extend>>
+UC_ManageProducts ..> UC_ManageCats   : <<include>>
+
+' ─────────────────────────────────────────────────────────────
+' MODULE 4 — INVENTORY MODULE
+' ─────────────────────────────────────────────────────────────
+package "Inventory Module" {
+  usecase "View Inventory List"          as UC_ViewInv
+  usecase "View Product Inventory"       as UC_ShowInv
+  usecase "Update Inventory"             as UC_UpdateInv
+  usecase "View Stock Movements"         as UC_Movements
+  usecase "Monitor Low-Stock Items"      as UC_LowStock
+  usecase "Track Expiry Dates"           as UC_TrackExpiry
+  usecase "Mark Expired Items"           as UC_MarkExpired
+}
+
+InvActor --> UC_ViewInv
+InvActor --> UC_ShowInv
+InvActor --> UC_UpdateInv
+InvActor --> UC_Movements
+InvActor --> UC_LowStock
+InvActor --> UC_TrackExpiry
+UC_TrackExpiry ..> UC_MarkExpired : <<extend>>
+
+' Inventory Manager also falls under purchasing for stock visibility
+PurchActor --> UC_ViewInv
+PurchActor --> UC_Movements
+
+' ─────────────────────────────────────────────────────────────
+' MODULE 5 — PURCHASING & SUPPLIERS MANAGER
+' ─────────────────────────────────────────────────────────────
+package "Purchasing & Suppliers Manager" {
+  usecase "Manage Supplier Profile"           as UC_ManageSupplier
+  usecase "Create Purchase Order"             as UC_CreatePO
+  usecase "View Purchase Orders"              as UC_ViewPO
+  usecase "Update Purchase Order"             as UC_UpdatePO
+  usecase "Record Order Receipt\n(Received Quantities)" as UC_ReceivePO
+  usecase "Cancel / Delete Purchase Order"    as UC_DeletePO
+  usecase "Generate Sales Report"             as UC_POReport
+}
+
+PurchActor --> UC_ManageSupplier
+PurchActor --> UC_CreatePO
+PurchActor --> UC_ViewPO
+PurchActor --> UC_UpdatePO
+PurchActor --> UC_DeletePO
+PurchActor --> UC_POReport
+UC_UpdatePO ..> UC_ReceivePO : <<extend>>
+
+' ─────────────────────────────────────────────────────────────
+' MODULE 6 — DELIVERY LOGISTICS
+' ─────────────────────────────────────────────────────────────
+package "Delivery Logistics" {
+  usecase "View Delivery Schedule\n(Deliveries & Pickups)" as UC_ViewSchedule
+  usecase "Update Fulfillment Status"     as UC_FulfillStatus
+  usecase "Create Delivery Record"        as UC_CreateDelivery
+  usecase "View Delivery Details"         as UC_ViewDelivery
+  usecase "Update Delivery Record"        as UC_UpdateDelivery
+}
+
+DelivActor --> UC_ViewSchedule
+DelivActor --> UC_FulfillStatus
+DelivActor --> UC_CreateDelivery
+DelivActor --> UC_ViewDelivery
+DelivActor --> UC_UpdateDelivery
+UC_UpdateDelivery ..> UC_FulfillStatus : <<include>>
+
+@enduml
