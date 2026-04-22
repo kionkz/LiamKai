@@ -127,14 +127,16 @@ UC_ManageProducts ..> UC_ManageCats   : <<include>>
 '         not InventoryController — it is NOT part of this module.
 ' ─────────────────────────────────────────────────────────────
 package "Inventory Module" {
+  usecase "Manage Product Catalog"  as UC_ManageCatalog
   usecase "View Inventory List"     as UC_ViewInv
-  usecase "View Product Inventory"  as UC_ShowInv
+  usecase "View Inventory Details"  as UC_ShowInv
   usecase "Adjust Inventory"        as UC_AdjustInv
   usecase "Record Stock Movement"   as UC_RecordMovement
   usecase "View Stock Movements"    as UC_Movements
   usecase "Monitor Low-Stock Items" as UC_LowStock
 }
 
+InvActor --> UC_ManageCatalog
 InvActor --> UC_ViewInv
 InvActor --> UC_ShowInv
 InvActor --> UC_AdjustInv
@@ -142,7 +144,8 @@ InvActor --> UC_Movements
 InvActor --> UC_LowStock
 UC_AdjustInv ..> UC_RecordMovement : <<include>>
 
-' Purchasing Order Manager has read access to inventory
+' Purchasing Order Manager has read access to inventory and product catalog
+PurchActor --> UC_ManageCatalog
 PurchActor --> UC_ViewInv
 PurchActor --> UC_Movements
 
