@@ -11,7 +11,8 @@ class Pricing extends Model
     protected $fillable = [
         'product_id',
         'retail_price',
-        'wholesale_price',
+        'discount_percent',
+        'discounted_price',
         'effective_date',
         'end_date',
         'status',
@@ -19,7 +20,8 @@ class Pricing extends Model
 
     protected $casts = [
         'retail_price' => 'decimal:2',
-        'wholesale_price' => 'decimal:2',
+        'discount_percent' => 'decimal:2',
+        'discounted_price' => 'decimal:2',
         'effective_date' => 'date',
         'end_date' => 'date',
     ];

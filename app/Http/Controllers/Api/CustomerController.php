@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\StoreCustomerRequest;
-use App\Http\Requests\UpdateCustomerRequest;
+use App\Http\Requests\Customers\StoreCustomerRequest;
+use App\Http\Requests\Customers\UpdateCustomerRequest;
 use App\Models\Customer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,7 +20,10 @@ class CustomerController extends Controller
             $search = trim((string) $request->input('search', ''));
             $perPage = (int) $request->input('per_page', 15);
 
-            $query = Customer::with('orders');
+            $query = Customer::withSum(
+                ['orders as credit_used' => fn ($q) => $q->whereNotIn('payment_status', ['paid'])],
+                'outstanding_balance'
+            );
 
             if ($search !== '') {
                 $query->where(function ($customerQuery) use ($search) {
@@ -34,11 +37,20 @@ class CustomerController extends Controller
             }
 
             $customers = $query->orderBy('name')->paginate($perPage);
-            
+
+            $data = collect($customers->items())->map(function ($customer) {
+                $creditUsed = (float) ($customer->credit_used ?? 0);
+                $creditLimit = (float) ($customer->credit_limit ?? 0);
+                $customer->credit_used = $creditUsed;
+                $customer->credit_available = $creditLimit > 0 ? max($creditLimit - $creditUsed, 0) : null;
+                $customer->credit_limit_exceeded = $creditLimit > 0 && $creditUsed >= $creditLimit;
+                return $customer;
+            })->values();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Customers retrieved successfully',
-                'data' => $customers->items(),
+                'data' => $data,
                 'pagination' => [
                     'total' => $customers->total(),
                     'current_page' => $customers->currentPage(),
@@ -61,7 +73,9 @@ class CustomerController extends Controller
     public function store(StoreCustomerRequest $request): JsonResponse
     {
         try {
-            $customer = Customer::create($request->validated());
+            $data = $request->validated();
+            $data['credit_limit'] = $data['type'] === 'wholesale' ? 15000 : null;
+            $customer = Customer::create($data);
             
             return response()->json([
                 'success' => true,
@@ -83,20 +97,17 @@ class CustomerController extends Controller
     public function show(string $id): JsonResponse
     {
         try {
-            $customer = Customer::with('orders.orderItems', 'orders.payments')
+            $customer = Customer::with('orders.orderItems.product', 'orders.payments')
                 ->findOrFail($id);
             
-            // Calculate customer metrics
-            $totalOrders = $customer->orders()->count();
-            $totalSpent = $customer->orders()->whereIn('status', ['confirmed', 'shipped', 'delivered'])->sum('total_amount');
-            $pendingBalance = $customer->orders()->where('balance_due', '>', 0)->sum('balance_due');
-            
-            $customer->metrics = [
-                'total_orders' => $totalOrders,
-                'total_spent' => $totalSpent,
-                'pending_balance' => $pendingBalance,
-                'credit_used' => $customer->credit_limit - $pendingBalance,
-            ];
+            // Credit tracking: sum of outstanding_balance on non-paid orders
+            $creditUsed = $customer->orders
+                ->filter(fn ($o) => !in_array($o->payment_status, ['paid']))
+                ->sum('outstanding_balance');
+            $creditLimit = (float) $customer->credit_limit;
+            $customer->credit_used = (float) $creditUsed;
+            $customer->credit_available = $creditLimit > 0 ? max($creditLimit - $creditUsed, 0) : null;
+            $customer->credit_limit_exceeded = $creditLimit > 0 && $creditUsed >= $creditLimit;
             
             return response()->json([
                 'success' => true,
@@ -123,7 +134,10 @@ class CustomerController extends Controller
     {
         try {
             $customer = Customer::findOrFail($id);
-            $customer->update($request->validated());
+            $data = $request->validated();
+            $effectiveType = $data['type'] ?? $customer->type;
+            $data['credit_limit'] = $effectiveType === 'wholesale' ? 15000 : null;
+            $customer->update($data);
             
             return response()->json([
                 'success' => true,

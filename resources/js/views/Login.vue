@@ -8,25 +8,37 @@
 
       <form @submit.prevent="handleLogin">
         <div class="form-group">
-          <label for="email">Email</label>
+          <label for="username">Username</label>
           <input
-            v-model="form.email"
-            type="email"
-            id="email"
-            placeholder="Enter your email"
+            v-model="form.username"
+            type="text"
+            id="username"
+            placeholder="Enter your username"
+            autocomplete="username"
             required
           />
         </div>
 
         <div class="form-group">
           <label for="password">Password</label>
-          <input
-            v-model="form.password"
-            type="password"
-            id="password"
-            placeholder="Enter your password"
-            required
-          />
+          <div class="password-field">
+            <input
+              v-model="form.password"
+              :type="showPassword ? 'text' : 'password'"
+              id="password"
+              placeholder="Enter your password"
+              autocomplete="current-password"
+              required
+            />
+            <button
+              type="button"
+              class="password-toggle"
+              @click="showPassword = !showPassword"
+              :aria-label="showPassword ? 'Hide password' : 'Show password'"
+            >
+              {{ showPassword ? 'Hide' : 'Show' }}
+            </button>
+          </div>
         </div>
 
         <div v-if="error" class="error-message">
@@ -42,9 +54,6 @@
         </button>
       </form>
 
-      <p class="demo-info">
-        Demo: test@gmail.com / password
-      </p>
     </div>
   </div>
 </template>
@@ -58,26 +67,31 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 const form = ref({
-  email: '',
+  username: '',
   password: ''
 });
 
 const loading = ref(false);
 const error = ref('');
+const showPassword = ref(false);
 
 const handleLogin = async () => {
   error.value = '';
   loading.value = true;
   
-  console.log('Login attempt with:', form.value.email);
+  console.log('Login attempt with:', form.value.username);
 
-  const result = await authStore.login(form.value.email, form.value.password);
+  const result = await authStore.login(form.value.username, form.value.password);
   
   console.log('Login result:', result);
 
   if (result.success) {
     console.log('Login successful, redirecting to home');
-    router.push('/');
+    if (result.mustChangePassword) {
+      router.push('/change-password');
+    } else {
+      router.push('/');
+    }
   } else {
     error.value = result.message || 'Login failed';
     console.error('Login failed:', error.value);
@@ -151,6 +165,31 @@ const handleLogin = async () => {
   background-color: #fef9f5;
 }
 
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 88px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: #0a1d37;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  color: #e57c2a;
+}
+
 .error-message {
   background-color: #fee;
   color: #c33;
@@ -184,10 +223,5 @@ const handleLogin = async () => {
   cursor: not-allowed;
 }
 
-.demo-info {
-  text-align: center;
-  font-size: 12px;
-  color: #999;
-  margin-top: 20px;
-}
+
 </style>

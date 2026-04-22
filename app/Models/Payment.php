@@ -15,6 +15,7 @@ class Payment extends Model
         'payment_date',
         'deposit_date',
         'check_from',
+        'bank_name',
         'reference',
         'status',
         'notes',

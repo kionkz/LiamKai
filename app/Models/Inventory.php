@@ -34,4 +34,23 @@ class Inventory extends Model
     {
         return $this->hasMany(StockMovement::class, 'product_id', 'product_id');
     }
+
+    public function availableQuantity(): float
+    {
+        return (float) ($this->quantity_on_hand ?? $this->quantity ?? 0);
+    }
+
+    public function applyQuantityDelta(float $delta): void
+    {
+        $nextQuantity = max(0, $this->availableQuantity() + $delta);
+
+        $updates = ['quantity' => $nextQuantity];
+
+        if (array_key_exists('quantity_on_hand', $this->getAttributes())) {
+            $updates['quantity_on_hand'] = $nextQuantity;
+        }
+
+        $this->forceFill($updates)->save();
+        $this->refresh();
+    }
 }

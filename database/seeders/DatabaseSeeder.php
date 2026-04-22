@@ -16,16 +16,17 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // Ensure a deterministic demo account exists for local testing.
+        if (!config('operations.setup.seed_admin', true)) {
+            return;
+        }
+
         User::updateOrCreate(
-            ['email' => 'test@gmail.com'],
+            ['username' => config('operations.setup.admin_username')],
             [
-                'name' => 'Test User',
-                'password' => Hash::make('password'),
+                'name' => config('operations.setup.admin_name'),
+                'email' => config('operations.setup.admin_email'),
+                'password' => Hash::make(config('operations.setup.admin_password')),
             ]
         );
-
-        // Seed products and pricing
-        $this->call([ProductSeeder::class]);
     }
 }

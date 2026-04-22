@@ -16,9 +16,11 @@ class Order extends Model
         'total_amount',
         'outstanding_balance',
         'payment_status',
+        'fulfillment_status',
         'delivery_status',
         'delivery_address',
         'delivery_date',
+        'scheduled_for',
         'notes',
     ];
 
@@ -26,6 +28,7 @@ class Order extends Model
         'total_amount' => 'decimal:2',
         'outstanding_balance' => 'decimal:2',
         'delivery_date' => 'date',
+        'scheduled_for' => 'datetime',
     ];
 
     // Relationships

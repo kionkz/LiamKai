@@ -1,9 +1,5 @@
 <template>
   <div class="movements-container">
-    <div class="header-section">
-      <h1>Stock Movements</h1>
-    </div>
-
     <div class="filters-bar">
       <div class="filter-group">
         <label>Movement Type:</label>
@@ -11,6 +7,7 @@
           <option value="">All Types</option>
           <option value="stock_in">Stock In</option>
           <option value="stock_out">Stock Out</option>
+          <option value="defect">Defect</option>
           <option value="adjustment">Adjustment</option>
         </select>
       </div>
@@ -35,13 +32,13 @@
     <table v-else class="movements-table">
       <thead>
         <tr>
-          <th>Date</th>
+          <th>Date & Time</th>
           <th>Product</th>
           <th>Type</th>
           <th>Quantity</th>
+          <th>Expiration Date</th>
           <th>Reference</th>
           <th>Reason</th>
-          <th>Responsible Staff</th>
           <th>Notes</th>
         </tr>
       </thead>
@@ -49,16 +46,16 @@
         <tr v-if="displayedMovements.length === 0">
           <td colspan="8" class="no-data">No stock movements found for selected filters.</td>
         </tr>
-        <tr v-for="movement in displayedMovements" :key="movement.id" :class="['movement-row', movement.type]">
+        <tr v-for="movement in displayedMovements" :key="movement.id" :class="['movement-row', movement.badgeClass]">
           <td>{{ formatDate(movement.created_at) }}</td>
           <td>{{ movement.product }}</td>
           <td>
-            <span class="badge" :class="movement.type">{{ getTypeLabel(movement.type) }}</span>
+            <span class="badge" :class="movement.badgeClass">{{ getTypeLabel(movement) }}</span>
           </td>
-          <td class="quantity" :class="movement.type">{{ getQuantityDisplay(movement) }}</td>
+          <td class="quantity" :class="movement.badgeClass">{{ getQuantityDisplay(movement) }}</td>
+          <td>{{ movement.expiration_date ? formatExpirationDate(movement.expiration_date) : '—' }}</td>
           <td>{{ movement.reference || '—' }}</td>
           <td>{{ movement.reason || '—' }}</td>
-          <td>{{ movement.staff || '—' }}</td>
           <td class="notes">{{ movement.notes || '—' }}</td>
         </tr>
       </tbody>
@@ -99,12 +96,6 @@ function getDefaultToDate() {
 
 const displayedMovements = computed(() => movements.value);
 
-const parseReasonFromNotes = (notes) => {
-  if (!notes) return null;
-  const parts = String(notes).split('|').map((p) => p.trim()).filter(Boolean);
-  return parts.length ? parts[0] : null;
-};
-
 const fetchMovements = async () => {
   loading.value = true;
   error.value = '';
@@ -132,11 +123,13 @@ const fetchMovements = async () => {
       created_at: m.created_at,
       product: m.product?.name || `Product #${m.product_id}`,
       type: m.type,
+      movement_type: m.movement_type,
       quantity: Number(m.quantity || 0),
       reference: m.reference,
-      reason: parseReasonFromNotes(m.notes),
-      staff: null,
+      reason: m.reason,
+      badgeClass: m.movement_type === 'defect' ? 'defect' : m.type,
       notes: m.notes,
+      expiration_date: m.expiration_date || null,
     }));
 
     totalPages.value = Math.max(1, response.data.pagination?.last_page || 1);
@@ -149,24 +142,41 @@ const fetchMovements = async () => {
   }
 };
 
-const formatDate = (dateStr) => {
-  return new Date(dateStr).toLocaleDateString('en-US', {
+const formatExpirationDate = (dateStr) => {
+  if (!dateStr) return '—';
+  // Normalise to YYYY-MM-DD then append time so it parses as local, not UTC
+  const datePart = String(dateStr).slice(0, 10);
+  const date = new Date(datePart + 'T00:00:00');
+  if (isNaN(date.getTime())) return datePart;
+  return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   });
 };
 
-const getTypeLabel = (type) => {
+const formatDate = (dateStr) => {
+  return new Date(dateStr).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const getTypeLabel = (movement) => {
+  if (movement.movement_type === 'defect') return 'Defect';
+  if (movement.movement_type === 'shortage') return 'Shortage';
   const labels = { stock_in: 'Stock In', stock_out: 'Stock Out', adjustment: 'Adjustment' };
-  return labels[type] || type;
+  return labels[movement.type] || movement.type;
 };
 
 const getQuantityDisplay = (movement) => {
-  if (movement.type === 'stock_out' || movement.type === 'adjustment') {
-    return movement.type === 'adjustment' && movement.quantity > 0 ? `+${movement.quantity}` : movement.quantity;
+  if (movement.movement_type === 'defect' || movement.movement_type === 'shortage' || movement.type === 'stock_out') {
+    return `-${movement.quantity.toFixed(2)}`;
   }
-  return `+${movement.quantity}`;
+  return `+${movement.quantity.toFixed(2)}`;
 };
 
 const applyFilters = () => {
@@ -344,6 +354,10 @@ onMounted(() => {
   border-left: 4px solid #2196f3;
 }
 
+.movement-row.defect {
+  border-left: 4px solid #b42318;
+}
+
 .badge {
   display: inline-block;
   padding: 4px 8px;
@@ -356,6 +370,21 @@ onMounted(() => {
 .badge.stock_in {
   background-color: #e8f5e9;
   color: #388e3c;
+}
+
+.badge.stock_out {
+  background-color: #fff3e0;
+  color: #f57c00;
+}
+
+.badge.adjustment {
+  background-color: #e8f1ff;
+  color: #1d4ed8;
+}
+
+.badge.defect {
+  background-color: #fdecec;
+  color: #b42318;
 }
 
 .badge.stock_out {

@@ -3,29 +3,36 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\StoreOrderRequest;
-use App\Http\Requests\UpdateOrderRequest;
+use App\Http\Requests\Orders\StoreOrderRequest;
+use App\Http\Requests\Orders\UpdateOrderRequest;
 use App\Models\Customer;
 use App\Models\Delivery;
 use App\Models\Inventory;
 use App\Models\Order;
 use App\Models\OrderItem;
-use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+
+use App\Support\PricingMath;
 
 class OrderController extends Controller
 {
     /**
      * Display all orders
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
+            $validated = $request->validate([
+                'page' => ['sometimes', 'integer', 'min:1'],
+                'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            ]);
+
             $orders = Order::with('customer', 'orderItems.product', 'payments', 'delivery')
-                ->where('delivery_status', '!=', 'cancelled')
+                ->where('fulfillment_status', '!=', 'cancelled')
                 ->orderBy('created_at', 'desc')
-                ->paginate(15);
+                ->paginate($validated['per_page'] ?? 15);
 
             $formattedOrders = $orders->getCollection()
                 ->map(fn (Order $order) => $this->formatOrder($order))
@@ -61,15 +68,23 @@ class OrderController extends Controller
 
             $validated = $request->validated();
             $customer = Customer::findOrFail($validated['customer_id']);
-            $orderType = $validated['order_type'] ?? $validated['type'] ?? 'retail';
+            $orderType = $customer->type ?? 'retail';
+            $fulfillmentType = $validated['fulfillment_type'];
+            $scheduledFor = $validated['scheduled_for'];
+            $deliveryAddress = $fulfillmentType === 'delivery'
+                ? ($validated['delivery_address'] ?? $customer->address ?? 'No address provided')
+                : null;
 
             $order = Order::create([
                 'customer_id' => $validated['customer_id'],
+                'fulfillment_type' => $fulfillmentType,
                 'order_type' => $orderType,
                 'notes' => $validated['notes'] ?? null,
-                'payment_status' => 'pending',
+                'payment_status' => 'unpaid',
+                'fulfillment_status' => 'pending',
                 'delivery_status' => 'pending',
-                'delivery_address' => $validated['delivery_address'] ?? $customer->address ?? 'No address provided',
+                'delivery_address' => $deliveryAddress,
+                'scheduled_for' => $scheduledFor,
                 'total_amount' => 0,
                 'outstanding_balance' => 0,
             ]);
@@ -77,53 +92,60 @@ class OrderController extends Controller
             $totalAmount = 0;
 
             foreach ($validated['items'] as $item) {
-                $inventory = Inventory::with('product')->where('product_id', $item['product_id'])->firstOrFail();
-                $availableQuantity = (float) ($inventory->quantity ?? $inventory->quantity_on_hand ?? 0);
+                $inventory = Inventory::with('product.pricing')->where('product_id', $item['product_id'])->firstOrFail();
+                $availableQuantity = $inventory->availableQuantity();
 
                 if ($availableQuantity < (float) $item['quantity']) {
                     $productName = $inventory->product?->name ?? "Product ID {$item['product_id']}";
                     throw new \Exception("Insufficient stock for {$productName}. Available: {$availableQuantity}");
                 }
 
+                $resolvedUnitPrice = PricingMath::resolveOrderPrice($inventory->product, $orderType);
+
                 OrderItem::create([
                     'order_id' => $order->id,
                     'product_id' => $item['product_id'],
                     'quantity' => $item['quantity'],
-                    'unit_price' => $item['unit_price'],
-                    'subtotal' => $item['quantity'] * $item['unit_price'],
+                    'unit_price' => $resolvedUnitPrice,
+                    'subtotal' => $item['quantity'] * $resolvedUnitPrice,
                 ]);
 
-                $inventory->decrement('quantity', $item['quantity']);
+                $inventory->applyQuantityDelta(-(float) $item['quantity']);
 
                 $inventory->stockMovements()->create([
                     'type' => 'stock_out',
+                    'movement_type' => 'sale',
                     'quantity' => $item['quantity'],
+                    'reason' => 'Customer order fulfilled',
                     'reference' => "ORDER-{$order->id}",
+                    'reference_id' => $order->id,
                     'notes' => "Stock deducted for order #{$order->id}",
                 ]);
 
-                $totalAmount += $item['quantity'] * $item['unit_price'];
+                $totalAmount += $item['quantity'] * $resolvedUnitPrice;
             }
 
-            [$scheduledDelivery, $deliveryStatus] = $this->determineDeliverySchedule(
-                Carbon::now(),
-                (bool) ($validated['is_urgent'] ?? false)
-            );
-
-            Delivery::create([
-                'order_id' => $order->id,
-                'employee_id' => null,
-                'status' => 'pending',
-                'scheduled_delivery' => $scheduledDelivery,
-                'delivery_address' => $order->delivery_address,
-                'notes' => 'Auto-created when order was placed',
-            ]);
+            // Credit limit check: block if the customer's current unpaid balance is already at or over the limit.
+            // The new order amount is irrelevant — a customer can order any amount as long as
+            // their existing outstanding balance is below the limit.
+            if ((float) $customer->credit_limit > 0) {
+                $currentCreditUsed = Order::where('customer_id', $customer->id)
+                    ->whereNotIn('payment_status', ['paid'])
+                    ->sum('outstanding_balance');
+                if ((float) $currentCreditUsed >= (float) $customer->credit_limit) {
+                    throw new \Exception(sprintf(
+                        '%s has ₱%s in unpaid orders, which meets or exceeds the ₱%s outstanding balance limit. They must make a payment before placing new orders.',
+                        $customer->name,
+                        number_format($currentCreditUsed, 2),
+                        number_format($customer->credit_limit, 2)
+                    ));
+                }
+            }
 
             $order->update([
                 'total_amount' => $totalAmount,
                 'outstanding_balance' => $totalAmount,
-                'delivery_status' => $deliveryStatus,
-                'delivery_date' => $scheduledDelivery->toDateString(),
+                'delivery_date' => $order->scheduled_for?->toDateString(),
             ]);
 
             DB::commit();
@@ -181,9 +203,22 @@ class OrderController extends Controller
             $order = Order::findOrFail($id);
             $validated = $request->validated();
 
-            if (isset($validated['type']) && !isset($validated['order_type'])) {
-                $validated['order_type'] = $validated['type'];
-                unset($validated['type']);
+            if (array_key_exists('fulfillment_type', $validated) && $validated['fulfillment_type'] === 'pickup') {
+                $validated['delivery_address'] = null;
+            }
+
+            if (array_key_exists('scheduled_for', $validated)) {
+                $validated['delivery_date'] = $validated['scheduled_for']
+                    ? date('Y-m-d', strtotime((string) $validated['scheduled_for']))
+                    : null;
+            }
+
+            if (isset($validated['fulfillment_status']) && !isset($validated['delivery_status'])) {
+                $validated['delivery_status'] = $this->mapFulfillmentStatusToDeliveryStatus($validated['fulfillment_status']);
+            }
+
+            if (isset($validated['delivery_status']) && !isset($validated['fulfillment_status'])) {
+                $validated['fulfillment_status'] = $this->mapDeliveryStatusToFulfillmentStatus($validated['delivery_status']);
             }
 
             $order->update($validated);
@@ -217,21 +252,24 @@ class OrderController extends Controller
 
             $order = Order::with('orderItems', 'delivery')->findOrFail($id);
 
-            if (in_array($order->delivery_status, ['delivered', 'cancelled'], true)) {
+            if (in_array($order->fulfillment_status, ['completed', 'cancelled'], true)) {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot archive {$order->delivery_status} order"
+                    'message' => "Cannot archive {$order->fulfillment_status} order"
                 ], 422);
             }
 
             foreach ($order->orderItems as $item) {
                 $inventory = Inventory::where('product_id', $item->product_id)->firstOrFail();
-                $inventory->increment('quantity', $item->quantity);
+                $inventory->applyQuantityDelta((float) $item->quantity);
 
                 $inventory->stockMovements()->create([
                     'type' => 'stock_in',
+                    'movement_type' => 'order_archive',
                     'quantity' => $item->quantity,
+                    'reason' => 'Archived order stock restoration',
                     'reference' => "ORDER-{$order->id}",
+                    'reference_id' => $order->id,
                     'notes' => "Stock restored for cancelled order #{$order->id}",
                 ]);
             }
@@ -240,7 +278,10 @@ class OrderController extends Controller
                 $order->delivery->update(['status' => 'failed']);
             }
 
-            $order->update(['delivery_status' => 'cancelled']);
+            $order->update([
+                'fulfillment_status' => 'cancelled',
+                'delivery_status' => 'cancelled',
+            ]);
             DB::commit();
 
             return response()->json([
@@ -257,24 +298,24 @@ class OrderController extends Controller
         }
     }
 
-    private function determineDeliverySchedule(Carbon $orderTime, bool $isUrgent = false): array
+    private function mapFulfillmentStatusToDeliveryStatus(string $status): string
     {
-        // Business rule from project paper:
-        // - Morning orders are grouped for same-day dispatch.
-        // - Non-urgent afternoon/evening orders move to next day.
-        // - Urgent requests are arranged on or before 5 PM.
-        $noonCutoff = $orderTime->copy()->setTime(12, 0, 0);
-        $sameDayTarget = $orderTime->copy()->setTime(17, 0, 0);
+        return match ($status) {
+            'in_progress' => 'processing',
+            'completed' => 'delivered',
+            'cancelled' => 'cancelled',
+            default => 'pending',
+        };
+    }
 
-        if ($isUrgent) {
-            return [$sameDayTarget, 'processing'];
-        }
-
-        if ($orderTime->lessThanOrEqualTo($noonCutoff)) {
-            return [$sameDayTarget, 'processing'];
-        }
-
-        return [$orderTime->copy()->addDay()->setTime(9, 0, 0), 'pending'];
+    private function mapDeliveryStatusToFulfillmentStatus(string $status): string
+    {
+        return match ($status) {
+            'processing' => 'in_progress',
+            'delivered' => 'completed',
+            'cancelled' => 'cancelled',
+            default => 'pending',
+        };
     }
 
     private function formatOrder(Order $order): array
@@ -282,7 +323,25 @@ class OrderController extends Controller
         $formatted = $order->toArray();
         $formatted['type'] = $order->order_type;
         $formatted['status'] = $order->payment_status;
-        $formatted['items'] = $formatted['order_items'] ?? [];
+        $formatted['amount_paid'] = max((float) $order->total_amount - (float) $order->outstanding_balance, 0);
+        $formatted['remaining_balance'] = (float) $order->outstanding_balance;
+        $formatted['order_date'] = $order->created_at?->toDateString();
+        $formatted['scheduled_for'] = $order->scheduled_for?->toIso8601String();
+        $formatted['fulfillment_type'] = $order->fulfillment_type ?? 'delivery';
+        $formatted['fulfillment_status'] = $order->fulfillment_status
+            ?? $this->mapDeliveryStatusToFulfillmentStatus($order->delivery_status ?? 'pending');
+        $formatted['items'] = $order->orderItems->map(function (OrderItem $item) {
+            return [
+                'id' => $item->id,
+                'product_id' => $item->product_id,
+                'product' => $item->product,
+                'quantity' => (float) $item->quantity,
+                'unit_price' => (float) $item->unit_price,
+                'subtotal' => (float) $item->subtotal,
+                'total' => (float) $item->subtotal,
+                'unit' => $item->product?->unit_of_measure ?? '',
+            ];
+        })->values()->all();
 
         return $formatted;
     }

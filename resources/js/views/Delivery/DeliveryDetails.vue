@@ -1,97 +1,111 @@
 <template>
-  <div class="delivery-details">
-    <div class="card">
-      <div class="header">
-        <h1>{{ deliveryNumber }}</h1>
-        <button @click="$router.back()">← Back</button>
+  <div class="detail-page">
+
+    <!-- Header -->
+    <div class="page-header">
+      <div>
+        <button class="back-btn" @click="$router.back()">&#8592; Back to Logistics</button>
+        <h1 v-if="order">Order #{{ String(order.id).padStart(4, '0') }}</h1>
       </div>
+      <span v-if="order" class="status-pill" :class="order.fulfillment_status">
+        {{ statusLabel(order.fulfillment_status) }}
+      </span>
+    </div>
 
-      <div v-if="loading" class="state">Loading delivery...</div>
-      <div v-else-if="loadError" class="state error">{{ loadError }}</div>
-      <template v-else>
+    <div v-if="loading" class="state-msg">Loading order...</div>
+    <div v-else-if="loadError" class="state-msg error">{{ loadError }}</div>
 
-      <div class="details-grid">
-        <div class="details-section">
-          <h3>Delivery Information</h3>
-          <div class="detail-row">
-            <span class="label">Status:</span>
-            <span class="status" :class="statusClass">{{ statusLabel }}</span>
-          </div>
-          <div class="detail-row">
-            <span class="label">Current Location:</span>
-            <span>{{ currentLocation }}</span>
-          </div>
-          <div class="detail-row">
-            <span class="label">Assigned Driver:</span>
-            <span>{{ assignedDriver }}</span>
-          </div>
-          <div class="detail-row">
-            <span class="label">Scheduled Time:</span>
-            <span>{{ scheduledTime }}</span>
+    <template v-else-if="order">
+      <div class="grid-two">
+
+        <!-- Order Info -->
+        <div class="card">
+          <h3 class="section-title">Order Information</h3>
+          <div class="info-rows">
+            <div class="info-row">
+              <span class="lbl">Customer</span>
+              <span>{{ order.customer?.name ?? 'Walk-In Customer' }}</span>
+            </div>
+            <div class="info-row">
+              <span class="lbl">Fulfillment Type</span>
+              <span class="type-badge" :class="order.fulfillment_type">
+                {{ order.fulfillment_type === 'pickup' ? 'Pickup' : 'Delivery' }}
+              </span>
+            </div>
+            <div class="info-row">
+              <span class="lbl">Delivery Address</span>
+              <span>{{ order.delivery_address || '—' }}</span>
+            </div>
+            <div class="info-row">
+              <span class="lbl">Scheduled</span>
+              <span>{{ formatDateTime(order.scheduled_for) }}</span>
+            </div>
+            <div class="info-row">
+              <span class="lbl">Total Amount</span>
+              <span class="amount">₱{{ formatAmount(order.total_amount) }}</span>
+            </div>
+            <div class="info-row">
+              <span class="lbl">Payment Status</span>
+              <span class="payment-badge" :class="order.payment_status">
+                {{ order.payment_status ?? '—' }}
+              </span>
+            </div>
           </div>
         </div>
 
-        <div class="details-section">
-          <h3>Delivery Items</h3>
-          <table class="items-table">
+        <!-- Items -->
+        <div class="card">
+          <h3 class="section-title">Order Items</h3>
+          <table class="items-table" v-if="(order.items || []).length">
             <thead>
               <tr>
                 <th>Product</th>
                 <th>Qty</th>
-                <th>Price</th>
+                <th>Unit Price</th>
+                <th>Subtotal</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in deliveryItems" :key="item.id">
-                <td>{{ item.name }}</td>
-                <td>{{ item.qty }}</td>
-                <td>₱{{ item.price }}</td>
-              </tr>
-              <tr v-if="deliveryItems.length === 0">
-                <td colspan="3">No delivery items</td>
+              <tr v-for="item in order.items" :key="item.id">
+                <td>{{ item.product?.name || 'Product' }}</td>
+                <td>{{ item.quantity }} {{ item.unit || '' }}</td>
+                <td>₱{{ formatAmount(item.unit_price) }}</td>
+                <td>₱{{ formatAmount(item.subtotal || item.total) }}</td>
               </tr>
             </tbody>
           </table>
+          <p v-else class="empty-items">No items found.</p>
         </div>
+
       </div>
 
-      <div class="actions-section">
-        <h3>Update Status</h3>
+      <!-- Status Update -->
+      <div class="card status-card">
+        <h3 class="section-title">Update Fulfillment Status</h3>
         <div class="status-buttons">
           <button
-            @click="updateStatus('picked_up')"
-            class="btn btn-status"
-            :class="{ active: selectedAction === 'picked_up' }"
-            :disabled="updating"
-          >📦 Picked Up</button>
-          <button
-            @click="updateStatus('in_transit')"
-            class="btn btn-status"
-            :class="{ active: selectedAction === 'in_transit' }"
-            :disabled="updating"
-          >🚚 In Transit</button>
-          <button
-            @click="updateStatus('delivered')"
-            class="btn btn-status"
-            :class="{ active: selectedAction === 'delivered' }"
-            :disabled="updating"
-          >✓ Delivered</button>
-          <button
-            @click="updateStatus('failed')"
-            class="btn btn-status btn-failed"
-            :class="{ active: selectedAction === 'failed' }"
-            :disabled="updating"
-          >✕ Failed</button>
+            v-for="opt in statusOptions"
+            :key="opt.value"
+            class="status-btn"
+            :class="{ active: order.fulfillment_status === opt.value }"
+            :disabled="updating || order.fulfillment_status === opt.value"
+            @click="updateStatus(opt.value)"
+          >
+            <span class="btn-icon">{{ opt.icon }}</span>
+            {{ opt.label }}
+          </button>
         </div>
-        <p v-if="updateMessage" class="update-message">{{ updateMessage }}</p>
+        <p v-if="updateMessage" class="update-msg" :class="{ error: updateError }">
+          {{ updateMessage }}
+        </p>
       </div>
-      </template>
-    </div>
+    </template>
+
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../api';
 
@@ -101,293 +115,244 @@ const loading = ref(false);
 const loadError = ref('');
 const updating = ref(false);
 const updateMessage = ref('');
-const delivery = ref(null);
-const selectedAction = ref('');
+const updateError = ref(false);
+const order = ref(null);
 
-const formatDateTime = (value) => {
-  if (!value) return '--';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '--';
-  return date.toLocaleString();
+const statusOptions = [
+  { value: 'pending',     label: 'Pending',   icon: '○' },
+  { value: 'in_progress', label: 'En-route',  icon: '→' },
+  { value: 'completed',   label: 'Delivered', icon: '✓' },
+];
+
+const statusLabel = (s) => {
+  if (s === 'in_progress') return 'En-route';
+  if (s === 'completed')   return 'Delivered';
+  return 'Pending';
 };
 
-const deliveryNumber = computed(() => {
-  if (!delivery.value) return 'Delivery';
-  return `Delivery #DLV-${String(delivery.value.id).padStart(4, '0')}`;
-});
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+};
 
-const statusLabel = computed(() => {
-  const status = delivery.value?.status;
-  if (status === 'in_transit') return 'In Transit';
-  if (status === 'delivered') return 'Delivered';
-  if (status === 'failed') return 'Failed';
-  return 'Pending';
-});
+const formatAmount = (val) =>
+  Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const statusClass = computed(() => {
-  const status = delivery.value?.status;
-  if (status === 'in_transit') return 'pending';
-  if (status === 'delivered') return 'delivered';
-  if (status === 'failed') return 'failed';
-  return 'pending';
-});
-
-const assignedDriver = computed(() => delivery.value?.employee?.name || 'Unassigned');
-const currentLocation = computed(() => delivery.value?.delivery_address || delivery.value?.order?.delivery_address || '--');
-const scheduledTime = computed(() => formatDateTime(delivery.value?.scheduled_delivery));
-
-const deliveryItems = computed(() => {
-  const items = delivery.value?.order?.order_items || delivery.value?.order?.orderItems || [];
-  return items.map((item) => ({
-    id: item.id,
-    name: item.product?.name || 'Product',
-    qty: item.quantity,
-    price: Number(item.unit_price || 0).toFixed(2),
-  }));
-});
-
-const loadDelivery = async () => {
+const loadOrder = async () => {
   loading.value = true;
   loadError.value = '';
   try {
-    const response = await api.get(`/deliveries/${route.params.id}`);
-    if (response.data?.success) {
-      delivery.value = response.data.data;
-      selectedAction.value = ['in_transit', 'delivered', 'failed'].includes(delivery.value.status)
-        ? delivery.value.status
-        : '';
+    const res = await api.get(`/orders/${route.params.id}`);
+    if (res.data?.success) {
+      order.value = res.data.data;
       return;
     }
-    loadError.value = response.data?.message || 'Failed to load delivery details';
-  } catch (error) {
-    loadError.value = error.response?.data?.message || 'Failed to load delivery details';
+    loadError.value = res.data?.message || 'Failed to load order';
+  } catch (e) {
+    loadError.value = e.response?.data?.message || 'Failed to load order';
   } finally {
     loading.value = false;
   }
 };
 
-const updateStatus = async (action) => {
-  if (!delivery.value) return;
-
+const updateStatus = async (status) => {
+  if (!order.value) return;
   updating.value = true;
   updateMessage.value = '';
-  selectedAction.value = action;
-
-  const status = action === 'picked_up' ? 'in_transit' : action;
-  const payload = { status };
-  if (status === 'delivered') {
-    payload.actual_delivery_date = new Date().toISOString();
-  }
-
+  updateError.value = false;
   try {
-    const response = await api.put(`/deliveries/${delivery.value.id}`, payload);
-    if (response.data?.success) {
-      delivery.value = response.data.data;
-      updateMessage.value = 'Status updated successfully';
+    const res = await api.patch(`/orders/${order.value.id}/fulfillment-status`, { status });
+    if (res.data?.success) {
+      order.value = { ...order.value, fulfillment_status: res.data.data?.status || status };
+      updateMessage.value = 'Status updated successfully.';
       return;
     }
-    updateMessage.value = response.data?.message || 'Failed to update status';
-  } catch (error) {
-    updateMessage.value = error.response?.data?.message || 'Failed to update status';
+    updateError.value = true;
+    updateMessage.value = res.data?.message || 'Update failed';
+  } catch (e) {
+    updateError.value = true;
+    updateMessage.value = e.response?.data?.message || 'Update failed';
   } finally {
     updating.value = false;
   }
 };
 
-onMounted(loadDelivery);
+onMounted(loadOrder);
 </script>
 
 <style scoped>
-.delivery-details {
-  max-width: 900px;
+.detail-page {
+  max-width: 960px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.25s ease;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: #7b8598;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 6px;
+  display: block;
+}
+.back-btn:hover { color: #0a1d37; }
+
+.page-header h1 { margin: 0; font-size: 26px; color: #0a1d37; font-weight: 800; }
+
+.state-msg { padding: 40px; text-align: center; color: #607089; font-size: 14px; }
+.state-msg.error { color: #c0392b; }
+
+.grid-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
 }
 
 .card {
-  background: white;
-  border-radius: 8px;
-  padding: 30px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e6eaf2;
+  padding: 22px;
+  box-shadow: 0 2px 8px rgba(10, 25, 52, 0.05);
 }
 
-.header {
+.section-title {
+  margin: 0 0 16px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: #6b7a99;
+  font-weight: 700;
+}
+
+.info-rows { display: flex; flex-direction: column; gap: 0; }
+
+.info-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 30px;
-}
-
-.header h1 {
-  margin: 0;
-  color: #0a1d37;
-}
-
-.header button {
-  padding: 8px 12px;
-  background-color: #f0f0f0;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.details-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 30px;
-  margin-bottom: 30px;
-}
-
-.details-section h3 {
-  margin: 0 0 15px 0;
-  color: #0a1d37;
-  font-size: 14px;
-  text-transform: uppercase;
-}
-
-.detail-row {
-  display: flex;
-  justify-content: space-between;
   padding: 10px 0;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #f0f3f8;
+  font-size: 14px;
+  gap: 12px;
 }
+.info-row:last-child { border-bottom: none; }
+.lbl { color: #7b8598; font-size: 13px; flex-shrink: 0; }
 
-.detail-row .label {
-  color: #666;
-  font-weight: 500;
-}
+.amount { font-weight: 700; color: #0a1d37; }
 
-.status {
+/* Status pills */
+.status-pill {
   display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.status.pending {
-  background-color: #e3f2fd;
-  color: #1976d2;
-}
-
-.status.delivered {
-  background-color: #e8f5e9;
-  color: #2e7d32;
-}
-
-.status.failed {
-  background-color: #fdecea;
-  color: #b71c1c;
-}
-
-.items-table {
-  width: 100%;
-  border-collapse: collapse;
-  background-color: #f9f9f9;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.items-table th {
-  padding: 10px;
-  text-align: left;
-  font-weight: 600;
-  color: #666;
-  font-size: 12px;
-  border-bottom: 2px solid #e0e0e0;
-}
-
-.items-table td {
-  padding: 10px;
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.actions-section {
-  padding: 20px;
-  background-color: #f9f9f9;
-  border-radius: 6px;
-  margin-bottom: 20px;
-}
-
-.actions-section h3 {
-  margin: 0 0 15px 0;
-  color: #0a1d37;
-}
-
-.status-buttons {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.btn {
-  padding: 10px 15px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.3s;
-}
-
-.btn-status {
-  background-color: #f0f0f0;
-  color: #333;
-  border: 1px solid #ddd;
-  flex: 1;
-}
-
-.btn-status:hover {
-  background-color: #e57c2a;
-  color: white;
-  border-color: #e57c2a;
-}
-
-.btn-status.active {
-  background-color: #e57c2a;
-  color: white;
-  border-color: #e57c2a;
-}
-
-.btn-failed.active {
-  background-color: #dc2626;
-  border-color: #dc2626;
-}
-
-.btn-status:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background-color: #e57c2a;
-  color: white;
-}
-
-.btn-primary:hover {
-  background-color: #d46a1a;
-}
-
-.state {
-  margin-bottom: 16px;
-  color: #334155;
-}
-
-.state.error {
-  color: #b91c1c;
-}
-
-.update-message {
-  margin: 8px 0 0 0;
-  color: #1e40af;
+  padding: 6px 14px;
+  border-radius: 999px;
   font-size: 13px;
+  font-weight: 700;
+}
+.status-pill.in_progress { background: #d3ecff; color: #2f7db7; }
+.status-pill.completed   { background: #daf5e3; color: #2a8d57; }
+.status-pill.pending     { background: #fef3e2; color: #9a6f20; }
+
+/* Payment badge */
+.payment-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+  background: #f0f0f0;
+  color: #555;
+}
+.payment-badge.paid   { background: #daf5e3; color: #2a8d57; }
+.payment-badge.unpaid { background: #fdecea; color: #c0392b; }
+
+/* Type badge */
+.type-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.type-badge.delivery { background: #e3f2fd; color: #1565c0; }
+.type-badge.pickup   { background: #f3e5f5; color: #6a1b9a; }
+
+/* Items table */
+.items-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.items-table th {
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #6b7a99;
+  font-weight: 700;
+  border-bottom: 2px solid #eef1f5;
+}
+.items-table td { padding: 10px; border-bottom: 1px solid #f0f3f8; color: #2b3650; }
+.items-table tr:last-child td { border-bottom: none; }
+
+.empty-items { color: #9aaab8; font-size: 13px; text-align: center; padding: 20px; }
+
+/* Status card */
+.status-card { }
+
+.status-buttons { display: flex; gap: 12px; flex-wrap: wrap; }
+
+.status-btn {
+  flex: 1;
+  min-width: 120px;
+  padding: 14px 20px;
+  border: 2px solid #e0e4ee;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #2a3b57;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
-@media (max-width: 768px) {
-  .details-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .status-buttons {
-    flex-direction: column;
-  }
+.status-btn:hover:not(:disabled) {
+  border-color: #e28937;
+  background: #fff7ed;
+  color: #e28937;
 }
+
+.status-btn.active {
+  border-color: #0a1d37;
+  background: #0a1d37;
+  color: #fff;
+}
+
+.status-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-icon { font-size: 16px; }
+
+.update-msg { margin: 14px 0 0; font-size: 13px; color: #2a8d57; font-weight: 600; }
+.update-msg.error { color: #c0392b; }
+
+@media (max-width: 720px) {
+  .grid-two { grid-template-columns: 1fr; }
+}
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 </style>

@@ -1,11 +1,5 @@
 <template>
   <div class="reports-container">
-    <div class="header-section">
-      <div class="header-left">
-        <h1>Business Reports</h1>
-      </div>
-    </div>
-
     <div class="report-controls">
       <div class="control-group">
         <label>Report Type:</label>
@@ -23,6 +17,7 @@
           <option value="today">Today</option>
           <option value="week">This Week</option>
           <option value="month">This Month</option>
+          <option value="all">All</option>
           <option value="custom">Custom Range</option>
         </select>
       </div>
@@ -34,8 +29,8 @@
       </div>
 
       <button @click="generateReport" class="btn btn-primary">Generate Report</button>
-      <button @click="exportPDF" class="btn btn-secondary">📄 Export PDF</button>
-      <button @click="printReport" class="btn btn-secondary">🖨️ Print</button>
+      <button @click="exportPDF" class="btn btn-secondary">Export PDF</button>
+      <button @click="printReport" class="btn btn-secondary">Print</button>
     </div>
 
     <p v-if="loading" class="report-state">Loading report data...</p>
@@ -50,20 +45,20 @@
         <div class="metric-card">
           <p class="metric-label">Total Sales</p>
           <p class="metric-value">₱{{ totalSales.toFixed(2) }}</p>
-          <p class="metric-change">+12.5% from last period</p>
+          <p class="metric-change">Recorded sales for the selected period</p>
         </div>
         <div class="metric-card">
           <p class="metric-label">Total Orders</p>
           <p class="metric-value">{{ totalOrders }}</p>
-          <p class="metric-change">+8 orders</p>
+          <p class="metric-change">Completed orders included in this range</p>
         </div>
         <div class="metric-card">
           <p class="metric-label">Average Order Value</p>
           <p class="metric-value">₱{{ avgOrderValue.toFixed(2) }}</p>
-          <p class="metric-change">+5.2% from last period</p>
+          <p class="metric-change">Average revenue per order</p>
         </div>
         <div class="metric-card">
-          <p class="metric-label">Retail vs Wholesale</p>
+          <p class="metric-label">Retail vs Discounted</p>
           <p class="metric-value">{{ retailPercentage }}% / {{ wholesalePercentage }}%</p>
           <p class="metric-change">Balanced mix</p>
         </div>
@@ -76,7 +71,7 @@
             <th>Date</th>
             <th>Orders</th>
             <th>Retail Sales</th>
-            <th>Wholesale Sales</th>
+            <th>Discounted Sales</th>
             <th>Total Sales</th>
             <th>Avg Order Value</th>
           </tr>
@@ -102,12 +97,12 @@
         <div class="metric-card">
           <p class="metric-label">Total Collected</p>
           <p class="metric-value">₱{{ totalCollected.toFixed(2) }}</p>
-          <p class="metric-change">+9.3% from last period</p>
+          <p class="metric-change">Completed payment collections</p>
         </div>
         <div class="metric-card">
           <p class="metric-label">Outstanding</p>
           <p class="metric-value">₱{{ totalOutstanding.toFixed(2) }}</p>
-          <p class="metric-change">-3.1% from last period</p>
+          <p class="metric-change">Open receivables still unpaid</p>
         </div>
         <div class="metric-card">
           <p class="metric-label">Collection Rate</p>
@@ -116,8 +111,8 @@
         </div>
         <div class="metric-card">
           <p class="metric-label">Payment Methods</p>
-          <p class="metric-value">Cash / Card / COD</p>
-          <p class="metric-change">Well distributed</p>
+          <p class="metric-value">{{ paymentMethods.length }}</p>
+          <p class="metric-change">Payment channels used in this period</p>
         </div>
       </div>
 
@@ -167,8 +162,8 @@
         </div>
         <div class="metric-card">
           <p class="metric-label">Stock Turnover</p>
-          <p class="metric-value">4.2x</p>
-          <p class="metric-change">Good velocity</p>
+          <p class="metric-value">{{ totalSales > 0 && totalInventoryValue > 0 ? (totalSales / totalInventoryValue).toFixed(2) + 'x' : '0.00x' }}</p>
+          <p class="metric-change">Sales value relative to current inventory value</p>
         </div>
       </div>
 
@@ -206,7 +201,7 @@
         <div class="metric-card">
           <p class="metric-label">New Customers</p>
           <p class="metric-value">{{ newCustomers }}</p>
-          <p class="metric-change">+15% growth</p>
+          <p class="metric-change">Customers added during this period</p>
         </div>
         <div class="metric-card">
           <p class="metric-label">Avg Customer Value</p>
@@ -288,6 +283,7 @@ const getReportTitle = () => {
     today: 'Today',
     week: 'This Week',
     month: 'This Month',
+    all: 'All Time',
     custom: `${fromDate.value} to ${toDate.value}`,
   };
   return titles[reportPeriod.value];
@@ -351,6 +347,11 @@ const updateReportData = () => {
 };
 
 const generateReport = () => {
+  if (reportPeriod.value === 'custom' && (!fromDate.value || !toDate.value)) {
+    errorMessage.value = 'Choose both start and end dates for a custom report.';
+    return;
+  }
+
   if (selectedReport.value !== 'sales') {
     fetchReportData();
     return;
@@ -423,7 +424,7 @@ const exportPDF = () => {
         ['Total Sales', formatPeso(totalSales.value)],
         ['Total Orders', String(totalOrders.value)],
         ['Average Order Value', formatPeso(avgOrderValue.value)],
-        ['Retail vs Wholesale', `${retailPercentage.value}% / ${wholesalePercentage.value}%`],
+        ['Retail vs Discounted', `${retailPercentage.value}% / ${wholesalePercentage.value}%`],
       ],
       styles: { fontSize: 10 },
     });
@@ -432,7 +433,7 @@ const exportPDF = () => {
     currentY = addSectionHeader(doc, currentY, 'Daily Sales Breakdown');
     autoTable(doc, {
       startY: currentY,
-      head: [['Date', 'Orders', 'Retail Sales', 'Wholesale Sales', 'Total Sales', 'Avg Order']],
+      head: [['Date', 'Orders', 'Retail Sales', 'Discounted Sales', 'Total Sales', 'Avg Order']],
       body: salesData.value.map((row) => {
         const total = Number(row.retail || 0) + Number(row.wholesale || 0);
         return [
@@ -538,7 +539,7 @@ const exportPDF = () => {
 };
 
 const printReport = () => {
-  window.print();
+  exportPDF();
 };
 
 onMounted(() => {

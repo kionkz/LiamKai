@@ -1,7 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../stores/authStore';
+import { ROUTE_MODULE_MAP, canAccess } from '../config/permissions';
 
 const Login = () => import('../views/Login.vue');
+const ChangePassword = () => import('../views/Auth/ChangePassword.vue');
 const AppLayout = () => import('../views/Dashboard.vue');
 const DashboardHome = () => import('../views/Dashboard/Index.vue');
 const OrdersList = () => import('../views/Orders/OrdersList.vue');
@@ -10,6 +12,7 @@ const OrderDetail = () => import('../views/Orders/OrderDetail.vue');
 const CustomerProfile = () => import('../views/Customers/CustomerProfile.vue');
 const CustomerList = () => import('../views/Customers/CustomerList.vue');
 const POSScreen = () => import('../views/POS/POSScreen.vue');
+const PaymentManagement = () => import('../views/Payments/PaymentManagement.vue');
 const ProductList = () => import('../views/Products/ProductList.vue');
 const DeliveryList = () => import('../views/Delivery/DeliveryList.vue');
 const DeliveryDetails = () => import('../views/Delivery/DeliveryDetails.vue');
@@ -19,6 +22,7 @@ const EditPurchaseOrder = () => import('../views/Purchasing/CreatePurchaseOrder.
 const ReceivingReport = () => import('../views/Purchasing/ReceivingReport.vue');
 const InventoryView = () => import('../views/Inventory/InventoryView.vue');
 const StockMovement = () => import('../views/Inventory/StockMovement.vue');
+const CategoriesView = () => import('../views/Inventory/CategoriesView.vue');
 const EmployeeManagement = () => import('../views/Admin/EmployeeManagement.vue');
 const ReportsPage = () => import('../views/Reports/ReportsPage.vue');
 const ProfilePage = () => import('../views/Profile/ProfilePage.vue');
@@ -29,6 +33,12 @@ const routes = [
     name: 'Login',
     component: Login,
     meta: { requiresAuth: false }
+  },
+  {
+    path: '/change-password',
+    name: 'ChangePassword',
+    component: ChangePassword,
+    meta: { requiresAuth: true, requiresPasswordChange: true }
   },
   {
     path: '/',
@@ -49,6 +59,11 @@ const routes = [
         path: 'orders/create',
         name: 'CreateOrder',
         component: CreateOrder,
+      },
+      {
+        path: 'payments',
+        name: 'PaymentManagement',
+        component: PaymentManagement,
       },
       {
         path: 'orders/:id',
@@ -116,6 +131,11 @@ const routes = [
         component: StockMovement,
       },
       {
+        path: 'inventory/categories',
+        name: 'CategoriesView',
+        component: CategoriesView,
+      },
+      {
         path: 'employees',
         name: 'EmployeeManagement',
         component: EmployeeManagement,
@@ -149,23 +169,39 @@ const router = createRouter({
 let authChecked = false;
 
 // Navigation guard
-router.beforeEach(async (to, from, next) => {
+router.beforeEach((to) => {
   const authStore = useAuthStore();
-  
-  // Ensure auth is checked on first load
+
   if (!authChecked) {
     authStore.checkAuth();
     authChecked = true;
   }
-  
-  const isAuthenticated = authStore.isAuthenticated;
 
-  if (to.meta.requiresAuth && !isAuthenticated) {
-    next('/login');
-  } else if (to.path === '/login' && isAuthenticated) {
-    next('/');
-  } else {
-    next();
+  const isAuthenticated = authStore.isAuthenticated;
+  const mustChangePassword = isAuthenticated && !!authStore.user?.must_change_password;
+
+  // Redirect unauthenticated users to login
+  if (to.meta.requiresAuth !== false && !isAuthenticated) {
+    return '/login';
+  }
+
+  // Already logged in — send to role's home instead of /login
+  if (to.path === '/login' && isAuthenticated) {
+    return mustChangePassword ? '/change-password' : authStore.homeRoute;
+  }
+
+  // Force password change before accessing anything else
+  if (mustChangePassword && to.path !== '/change-password') {
+    return '/change-password';
+  }
+
+  // Check module-level permission for the target route
+  if (isAuthenticated && to.name) {
+    const module = ROUTE_MODULE_MAP[to.name];
+    if (module && !canAccess(authStore.userRole, module)) {
+      // Redirect to their default landing page
+      return authStore.homeRoute;
+    }
   }
 });
 

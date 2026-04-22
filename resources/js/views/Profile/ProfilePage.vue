@@ -8,7 +8,7 @@
     <div class="profile-card">
       <div class="section-title-row">
         <h3>Account Details</h3>
-        <span class="chip">Gmail only</span>
+        <span class="chip">Username login</span>
       </div>
 
       <div v-if="loading" class="state-msg">Loading profile...</div>
@@ -21,8 +21,13 @@
         </div>
 
         <div class="form-group">
-          <label for="email">Gmail Address</label>
-          <input id="email" v-model="form.email" type="email" placeholder="example@gmail.com" required />
+          <label for="username">Username</label>
+          <input id="username" v-model="form.username" type="text" required />
+        </div>
+
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input id="email" v-model="form.email" type="email" placeholder="admin@example.com" required />
         </div>
 
         <div class="form-group full-width">
@@ -55,6 +60,7 @@ const successMessage = ref('');
 
 const form = ref({
   name: '',
+  username: '',
   email: '',
   password: '',
 });
@@ -67,6 +73,7 @@ const loadProfile = async () => {
     const response = await api.get('/profile');
     if (response.data?.success) {
       form.value.name = response.data.data.name || '';
+      form.value.username = response.data.data.username || '';
       form.value.email = response.data.data.email || '';
     } else {
       error.value = response.data?.message || 'Failed to load profile.';
@@ -86,6 +93,7 @@ const saveProfile = async () => {
   try {
     const payload = {
       name: form.value.name,
+      username: form.value.username,
       email: form.value.email,
       password: form.value.password || null,
     };

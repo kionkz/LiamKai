@@ -15,11 +15,13 @@ class InventoryController extends Controller
     /**
      * Display all inventory
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
-            $inventory = Inventory::with('product', 'stockMovements')
-                ->paginate(15);
+            $perPage = max(1, min((int) $request->input('per_page', 15), 100));
+
+            $inventory = Inventory::with('product.productCategory', 'product.pricing', 'product.pricingLogs', 'stockMovements')
+                ->paginate($perPage);
             
             return response()->json([
                 'success' => true,
@@ -59,7 +61,7 @@ class InventoryController extends Controller
     {
         try {
             $inventory = Inventory::where('product_id', $id)
-                ->with('product', 'stockMovements')
+                ->with('product.productCategory', 'product.pricing', 'product.pricingLogs', 'stockMovements')
                 ->firstOrFail();
             
             return response()->json([
@@ -88,7 +90,7 @@ class InventoryController extends Controller
         try {
             $validated = $request->validate([
                 'reorder_point' => 'sometimes|required|numeric|min:0',
-                'adjustment_quantity' => 'sometimes|numeric',
+                'adjustment_quantity' => 'sometimes|numeric|min:0',
                 'adjustment_reason' => 'required_with:adjustment_quantity|string|max:255',
                 'adjustment_note' => 'sometimes|nullable|string|max:1000',
             ]);
@@ -102,14 +104,13 @@ class InventoryController extends Controller
             
             // Record manual adjustment if provided
             if (isset($validated['adjustment_quantity'])) {
-                $adjustmentQty = $validated['adjustment_quantity'];
-                $quantityColumn = Schema::hasColumn('inventory', 'quantity_on_hand') ? 'quantity_on_hand' : 'quantity';
+                $adjustmentQty = (float) $validated['adjustment_quantity'];
                 
                 if ($adjustmentQty > 0) {
-                    $inventory->increment($quantityColumn, $adjustmentQty);
+                    $inventory->applyQuantityDelta($adjustmentQty);
                     $movementType = 'stock_in';
                 } elseif ($adjustmentQty < 0) {
-                    $inventory->decrement($quantityColumn, abs($adjustmentQty));
+                    $inventory->applyQuantityDelta($adjustmentQty);
                     $movementType = 'stock_out';
                 } else {
                     return response()->json([
@@ -127,6 +128,9 @@ class InventoryController extends Controller
                 $inventory->stockMovements()->create([
                     'type' => $movementType,
                     'quantity' => abs($adjustmentQty),
+                    'movement_type' => 'manual_adjustment',
+                    'reason' => $validated['adjustment_reason'],
+                    'reference' => 'MANUAL-ADJUSTMENT',
                     'notes' => $movementNotes,
                 ]);
                 
@@ -139,7 +143,7 @@ class InventoryController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Inventory updated successfully',
-                'data' => $inventory->fresh(['product', 'stockMovements'])
+                'data' => $inventory->fresh(['product.productCategory', 'product.pricing', 'product.pricingLogs', 'stockMovements'])
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -178,8 +182,8 @@ class InventoryController extends Controller
     public function showLowStock(): JsonResponse
     {
         try {
-            $lowStock = Inventory::whereRaw('quantity_on_hand <= reorder_point')
-                ->with('product')
+            $lowStock = Inventory::whereRaw('quantity <= reorder_point')
+                ->with('product.productCategory')
                 ->get();
             
             return response()->json([
@@ -204,7 +208,7 @@ class InventoryController extends Controller
     {
         try {
             $validated = $request->validate([
-                'type' => 'nullable|string|in:stock_in,stock_out,adjustment',
+                'type' => 'nullable|string|in:stock_in,stock_out,adjustment,defect',
                 'from_date' => 'nullable|date',
                 'to_date' => 'nullable|date',
                 'page' => 'nullable|integer|min:1',
@@ -216,7 +220,11 @@ class InventoryController extends Controller
             $query = StockMovement::with('product')->orderByDesc('created_at');
 
             if (!empty($validated['type'])) {
-                $query->where('type', $validated['type']);
+                if ($validated['type'] === 'defect') {
+                    $query->where('movement_type', 'defect');
+                } else {
+                    $query->where('type', $validated['type']);
+                }
             }
 
             if (!empty($validated['from_date'])) {

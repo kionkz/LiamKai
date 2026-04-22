@@ -1,55 +1,54 @@
 <template>
   <div class="dashboard-container">
-    <div class="widgets-grid">
-      <div class="widget card">
-        <div class="widget-header">
-          <h3>Today's Sales</h3>
-          <span class="icon">💰</span>
+
+    <!-- ── Sales / Customer Orders role ── -->
+    <template v-if="authStore.hasPermission('customer-orders')">
+      <div class="widgets-grid">
+        <div class="widget card">
+          <div class="widget-header"><h3>Today's Sales</h3></div>
+          <div class="widget-body">
+            <p class="big-number">{{ formatCurrency(summary.headline.todaysSales) }}</p>
+            <p class="meta">{{ summary.headline.ordersToday }} order{{ summary.headline.ordersToday !== 1 ? 's' : '' }} today</p>
+          </div>
         </div>
-        <div class="widget-body">
-          <p class="big-number">₱12,450</p>
-          <p class="meta">+15% from yesterday</p>
+        <div class="widget card">
+          <div class="widget-header"><h3>This Week</h3></div>
+          <div class="widget-body">
+            <p class="big-number">{{ formatCurrency(summary.headline.weekRevenue) }}</p>
+            <p class="meta">Revenue this week</p>
+          </div>
+        </div>
+        <div class="widget card">
+          <div class="widget-header"><h3>This Month</h3></div>
+          <div class="widget-body">
+            <p class="big-number">{{ formatCurrency(summary.headline.monthRevenue) }}</p>
+            <p class="meta">Revenue this month</p>
+          </div>
+        </div>
+        <div class="widget card accent-card">
+          <div class="widget-header"><h3>Outstanding Balance</h3></div>
+          <div class="widget-body">
+            <p class="big-number">{{ formatCurrency(summary.headline.outstanding) }}</p>
+            <p class="meta">Unpaid / partially paid orders</p>
+          </div>
+        </div>
+        <div class="widget card">
+          <div class="widget-header"><h3>Total Customers</h3></div>
+          <div class="widget-body">
+            <p class="big-number">{{ summary.customers.total }}</p>
+            <p class="meta">+{{ summary.customers.newThisWeek }} new this week</p>
+          </div>
         </div>
       </div>
 
-      <div class="widget card">
-        <div class="widget-header">
-          <h3>Pending Deliveries</h3>
-          <span class="icon">🚚</span>
+      <div class="card recent-orders-card">
+        <div class="card-header-row">
+          <h2>Recent Orders</h2>
+          <router-link to="/orders" class="view-all-link">View All Orders →</router-link>
         </div>
-        <div class="widget-body">
-          <p class="big-number">8</p>
-          <p class="meta">3 urgent</p>
-        </div>
-      </div>
-
-      <div class="widget card">
-        <div class="widget-header">
-          <h3>Low Stock Alerts</h3>
-          <span class="icon">⚠️</span>
-        </div>
-        <div class="widget-body">
-          <p class="big-number" style="color: #e57c2a;">5</p>
-          <p class="meta">Action required</p>
-        </div>
-      </div>
-
-      <div class="widget card">
-        <div class="widget-header">
-          <h3>Purchase Orders</h3>
-          <span class="icon">📦</span>
-        </div>
-        <div class="widget-body">
-          <p class="big-number">3</p>
-          <p class="meta">Awaiting delivery</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="dashboard-content">
-      <div class="card">
-        <h2>Recent Orders</h2>
-        <table class="data-table">
+        <div v-if="loadingOrders" class="loading-text">Loading...</div>
+        <div v-else-if="summary.recentOrders.length === 0" class="empty-text">No recent orders</div>
+        <table v-else class="data-table clickable-rows">
           <thead>
             <tr>
               <th>Order #</th>
@@ -60,233 +59,270 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="i in 5" :key="i">
-              <td>#ORD-{{ 1000 + i }}</td>
-              <td>Customer {{ i }}</td>
-              <td><span class="badge" :class="i % 2 === 0 ? 'retail' : 'wholesale'">{{ i % 2 === 0 ? 'Retail' : 'Wholesale' }}</span></td>
-              <td>₱{{ (Math.random() * 10000 + 1000).toFixed(2) }}</td>
-              <td><span class="status" :class="['pending', 'paid', 'delivered'][i % 3]">{{ ['Pending', 'Paid', 'Delivered'][i % 3] }}</span></td>
+            <tr v-for="order in summary.recentOrders" :key="order.id" @click="router.push('/orders')" title="Go to Order History">
+              <td>{{ order.order_number }}</td>
+              <td>{{ order.customer?.name || 'Walk-In' }}</td>
+              <td><span class="badge" :class="order.order_type">{{ order.order_type || '-' }}</span></td>
+              <td>{{ formatCurrency(order.total_amount) }}</td>
+              <td><span class="status" :class="order.status">{{ order.status }}</span></td>
             </tr>
           </tbody>
         </table>
       </div>
+    </template>
 
-      <div class="card">
-        <h2>Revenue Summary</h2>
-        <div class="revenue-summary">
-          <div class="revenue-item">
-            <p class="label">This Week</p>
-            <p class="value">₱85,450</p>
+    <!-- ── Inventory role ── -->
+    <template v-else-if="authStore.hasPermission('inventory')">
+      <div class="widgets-grid">
+        <div class="widget card">
+          <div class="widget-header"><h3>Low Stock Alerts</h3></div>
+          <div class="widget-body">
+            <p class="big-number" :style="summary.inventory.lowStockCount > 0 ? 'color:#e57c2a' : ''">{{ summary.inventory.lowStockCount }}</p>
+            <p class="meta">{{ summary.inventory.lowStockCount > 0 ? 'Action required' : 'Stock levels OK' }}</p>
           </div>
-          <div class="revenue-item">
-            <p class="label">This Month</p>
-            <p class="value">₱324,890</p>
+        </div>
+        <div class="widget card">
+          <div class="widget-header"><h3>Current Inventory</h3></div>
+          <div class="widget-body">
+            <p class="big-number">{{ formatQuantity(summary.inventory.currentStockQuantity) }}</p>
+            <p class="meta">Across {{ summary.inventory.totalSkus }} SKUs</p>
           </div>
-          <div class="revenue-item">
-            <p class="label">Outstanding</p>
-            <p class="value">₱45,600</p>
+        </div>
+        <div class="widget card accent-card">
+          <div class="widget-header"><h3>Inventory Value</h3></div>
+          <div class="widget-body">
+            <p class="big-number">{{ formatCurrency(summary.inventory.inventoryValue) }}</p>
+            <p class="meta">Live stock value</p>
           </div>
         </div>
       </div>
-    </div>
+      <div class="card">
+        <h2>Priority Reorders</h2>
+        <div v-if="summary.inventory.lowStockItems.length === 0" class="empty-text">No urgent reorder items</div>
+        <table v-else class="data-table">
+          <thead><tr><th>Product</th><th>On Hand</th><th>Reorder Point</th></tr></thead>
+          <tbody>
+            <tr v-for="item in summary.inventory.lowStockItems" :key="item.product">
+              <td>{{ item.product }}</td>
+              <td>{{ formatQuantity(item.current) }}</td>
+              <td>{{ formatQuantity(item.reorder) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+    <!-- ── Purchasing role ── -->
+    <template v-else-if="authStore.hasPermission('purchasing')">
+      <div class="widgets-grid">
+        <div class="widget card">
+          <div class="widget-header"><h3>Open Purchase Orders</h3></div>
+          <div class="widget-body">
+            <p class="big-number">{{ summary.operations.openPurchaseOrders }}</p>
+            <p class="meta">Pending / partially received</p>
+          </div>
+        </div>
+        <div class="widget card">
+          <div class="widget-header"><h3>Low Stock Items</h3></div>
+          <div class="widget-body">
+            <p class="big-number" :style="summary.inventory.lowStockCount > 0 ? 'color:#e57c2a' : ''">{{ summary.inventory.lowStockCount }}</p>
+            <p class="meta">{{ summary.inventory.lowStockCount > 0 ? 'Action required' : 'Stock levels OK' }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Priority Reorders</h2>
+        <div v-if="summary.inventory.lowStockItems.length === 0" class="empty-text">No urgent reorder items</div>
+        <table v-else class="data-table">
+          <thead><tr><th>Product</th><th>On Hand</th><th>Reorder Point</th></tr></thead>
+          <tbody>
+            <tr v-for="item in summary.inventory.lowStockItems" :key="item.product">
+              <td>{{ item.product }}</td>
+              <td>{{ formatQuantity(item.current) }}</td>
+              <td>{{ formatQuantity(item.reorder) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+    <!-- ── Delivery role ── -->
+    <template v-else-if="authStore.hasPermission('logistics')">
+      <div class="widgets-grid">
+        <div class="widget card">
+          <div class="widget-header"><h3>Pending Deliveries</h3></div>
+          <div class="widget-body">
+            <p class="big-number">{{ summary.operations.pendingDeliveries }}</p>
+            <p class="meta">Awaiting dispatch</p>
+          </div>
+        </div>
+        <div class="widget card">
+          <div class="widget-header"><h3>En Route</h3></div>
+          <div class="widget-body">
+            <p class="big-number">{{ summary.operations.enRouteDeliveries }}</p>
+            <p class="meta">Currently in transit</p>
+          </div>
+        </div>
+      </div>
+    </template>
+
   </div>
 </template>
 
 <script setup>
+import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import api from '../../api';
+import { useAuthStore } from '../../stores/authStore';
+
+const authStore = useAuthStore();
+const router = useRouter();
+
+const loadingOrders = ref(false);
+const summary = ref({
+  headline: {
+    todaysSales: 0,
+    ordersToday: 0,
+    weekRevenue: 0,
+    monthRevenue: 0,
+    outstanding: 0,
+  },
+  operations: {
+    pendingDeliveries: 0,
+    enRouteDeliveries: 0,
+    openPurchaseOrders: 0,
+    receivedToday: 0,
+  },
+  inventory: {
+    totalSkus: 0,
+    currentStockQuantity: 0,
+    lowStockCount: 0,
+    inventoryValue: 0,
+    lowStockItems: [],
+  },
+  recentOrders: [],
+  customers: {
+    total: 0,
+    newToday: 0,
+    newThisWeek: 0,
+    topCustomers: [],
+  },
+});
+
+const formatCurrency = (val) => {
+  const n = Number(val) || 0;
+  return '\u20B1' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const formatQuantity = (value) => `${Number(value || 0).toFixed(2)} kg`;
+
+const fetchDashboardData = async () => {
+  loadingOrders.value = true;
+  try {
+    const response = await api.get('/reports/dashboard-summary');
+    if (response.data?.success) {
+      summary.value = response.data.data;
+    }
+  } catch (e) {
+    console.error('Dashboard fetch error:', e);
+  } finally {
+    loadingOrders.value = false;
+  }
+};
+
+onMounted(fetchDashboardData);
 </script>
 
 <style scoped>
-.dashboard-container {
-  max-width: 1400px;
-  margin: 0 auto;
-  animation: fadeIn 0.3s ease-in;
-  padding: 20px 0;
-}
+.dashboard-container { max-width: 1400px; margin: 0 auto; animation: fadeIn 0.3s ease-in; padding: 20px 0; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
+/* Widget grid */
 .widgets-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
   margin-bottom: 40px;
 }
 
+/* Base card */
 .widget {
-  background: white;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border-left: 4px solid #e57c2a;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 24px 24px 20px;
+  box-shadow: 0 2px 10px rgba(10, 29, 55, 0.07);
+  border-left: 5px solid #e57c2a;
+  transition: transform 0.2s, box-shadow 0.2s;
 }
 
-.widget:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-}
+.widget:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(10,29,55,0.12); }
 
-.widget-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
+.widget-header { margin-bottom: 16px; }
 .widget-header h3 {
   margin: 0;
-  font-size: 14px;
-  color: #666;
+  font-size: 11px;
+  color: #8a96a8;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-weight: 600;
+  letter-spacing: 0.8px;
+  font-weight: 700;
 }
 
-.widget-header .icon {
-  font-size: 28px;
-  opacity: 0.8;
-}
-
-.widget-body {
-  padding-top: 8px;
-}
-
+.widget-body { padding-top: 4px; }
 .big-number {
   font-size: 32px;
-  font-weight: 700;
+  font-weight: 800;
   margin: 0;
   color: #0a1d37;
+  line-height: 1.1;
 }
-
 .meta {
   font-size: 12px;
-  color: #999;
-  margin: 8px 0 0 0;
+  color: #9aaab8;
+  margin: 8px 0 0;
 }
 
-.dashboard-content {
-  display: grid;
-  grid-template-columns: 1fr 350px;
-  gap: 20px;
+/* Accent card — Inventory Value */
+.accent-card {
+  background: linear-gradient(135deg, #0a1d37 0%, #1a3a5c 100%) !important;
+  border-left-color: #e57c2a !important;
+}
+.accent-card .widget-header h3 {
+  color: #7ea8d0 !important;
+}
+.accent-card .big-number {
+  color: #ffffff !important;
+}
+.accent-card .meta {
+  color: #7ea8d0 !important;
 }
 
-.card {
-  background: white;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.card h2 {
-  margin: 0 0 20px 0;
-  color: #0a1d37;
-  font-size: 18px;
-}
-
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.data-table thead {
-  background-color: #f9f9f9;
-}
-
-.data-table th {
-  padding: 12px;
-  text-align: left;
-  font-weight: 600;
-  color: #666;
-  font-size: 12px;
-  text-transform: uppercase;
-  border-bottom: 2px solid #e0e0e0;
-}
-
-.data-table td {
-  padding: 12px;
-  border-bottom: 1px solid #e0e0e0;
-  color: #333;
-}
-
-.badge {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.badge.retail {
-  background-color: #e3f2fd;
-  color: #1976d2;
-}
-
-.badge.wholesale {
-  background-color: #f3e5f5;
-  color: #7b1fa2;
-}
-
-.status {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.status.pending {
-  background-color: #fff3e0;
-  color: #f57c00;
-}
-
-.status.paid {
-  background-color: #e8f5e9;
-  color: #388e3c;
-}
-
-.status.delivered {
-  background-color: #e0f2f1;
-  color: #00897b;
-}
-
-.revenue-summary {
-  display: grid;
-  gap: 15px;
-}
-
-.revenue-item {
-  padding: 15px;
-  background-color: #f9f9f9;
-  border-radius: 6px;
-  border-left: 4px solid #e57c2a;
-}
-
-.revenue-item .label {
-  font-size: 12px;
-  color: #999;
-  margin: 0;
-  text-transform: uppercase;
-}
-
-.revenue-item .value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #0a1d37;
-  margin: 5px 0 0 0;
-}
-
-@media (max-width: 1200px) {
-  .dashboard-content {
-    grid-template-columns: 1fr;
-  }
-}
+/* Dashboard content */
+.recent-orders-card { margin-top: 0; }
+.card { background: white; border-radius: 12px; padding: 22px; box-shadow: 0 2px 10px rgba(10,29,55,0.07); margin-bottom: 20px; }
+.card h2 { margin: 0 0 20px; color: #0a1d37; font-size: 17px; font-weight: 700; }.data-table { width: 100%; border-collapse: collapse; }
+.data-table thead { background-color: #f8fafc; }
+.data-table th { padding: 12px; text-align: left; font-weight: 700; color: #8a96a8; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #edf2f7; }
+.data-table td { padding: 12px; border-bottom: 1px solid #edf2f7; color: #334155; font-size: 14px; }
+.badge { display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.badge.retail { background-color: #e3f2fd; color: #1976d2; }
+.badge.wholesale { background-color: #f3e5f5; color: #7b1fa2; }
+.status { display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; text-transform: capitalize; }
+.status.pending { background-color: #fff3e0; color: #f57c00; }
+.status.partial, .status.partially_paid, .status.partially_received { background-color: #fff7e6; color: #b26a00; }
+.status.paid, .status.completed, .status.received { background-color: #e8f5e9; color: #388e3c; }
+.status.delivered { background-color: #e0f2f1; color: #00897b; }
+.revenue-summary { display: grid; gap: 15px; }
+.revenue-item { padding: 15px; background-color: #f9f9f9; border-radius: 8px; border-left: 4px solid #e57c2a; }
+.revenue-item .label { font-size: 12px; color: #999; margin: 0; text-transform: uppercase; }
+.revenue-item .value { font-size: 24px; font-weight: 700; color: #0a1d37; margin: 5px 0 0; }
+.revenue-item .value.compact { font-size: 16px; }
+.low-stock-list { display: grid; gap: 10px; margin-top: 8px; }
+.low-stock-item { display: flex; justify-content: space-between; gap: 12px; color: #27344d; font-size: 13px; }
+.loading-text, .empty-text { text-align: center; color: #999; padding: 30px; }
+.card-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.card-header-row h2 { margin: 0; color: #0a1d37; font-size: 17px; font-weight: 700; }
+.view-all-link { font-size: 13px; color: #e57c2a; font-weight: 600; text-decoration: none; }
+.view-all-link:hover { text-decoration: underline; }
+.clickable-rows tbody tr { cursor: pointer; }
+.clickable-rows tbody tr:hover { background-color: #f0f7ff; }
 </style>

@@ -4,15 +4,18 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\Delivery;
 use App\Models\Inventory;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Models\PurchaseOrder;
 use App\Models\SalesReport;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class ReportController extends Controller
 {
@@ -68,6 +71,7 @@ class ReportController extends Controller
     public function analytics(Request $request): JsonResponse
     {
         [$startDate, $endDate] = $this->resolveDateRange($request);
+        $inventoryQuantityColumn = Schema::hasColumn('inventory', 'quantity_on_hand') ? 'quantity_on_hand' : 'quantity';
 
         $salesSummary = Order::query()
             ->whereBetween('created_at', [$startDate, $endDate]);
@@ -150,12 +154,13 @@ class ReportController extends Controller
         $totalSkus = Product::query()->count();
         $lowStockItems = $inventoryRows
             ->filter(function ($item) {
-                return (float) $item->quantity <= (float) $item->reorder_point;
+                $quantity = (float) ($item->quantity_on_hand ?? $item->quantity ?? 0);
+                return $quantity <= (float) $item->reorder_point;
             })
             ->map(function ($item) {
                 return [
                     'product' => $item->product?->name ?? 'Unknown Product',
-                    'current' => (float) $item->quantity,
+                    'current' => (float) ($item->quantity_on_hand ?? $item->quantity ?? 0),
                     'reorder' => (float) $item->reorder_point,
                 ];
             })
@@ -163,7 +168,7 @@ class ReportController extends Controller
 
         $totalInventoryValue = $inventoryRows->sum(function ($item) {
             $price = (float) ($item->product?->base_price ?? 0);
-            return (float) $item->quantity * $price;
+            return (float) ($item->quantity_on_hand ?? $item->quantity ?? 0) * $price;
         });
 
         $topCustomers = Customer::query()
@@ -233,6 +238,7 @@ class ReportController extends Controller
                 ],
                 'inventory' => [
                     'totalSKUs' => $totalSkus,
+                    'currentStockQuantity' => (float) $inventoryRows->sum($inventoryQuantityColumn),
                     'lowStockCount' => $lowStockItems->count(),
                     'totalInventoryValue' => (float) $totalInventoryValue,
                     'lowStockItems' => $lowStockItems,
@@ -248,9 +254,108 @@ class ReportController extends Controller
         ]);
     }
 
+    public function dashboardSummary(): JsonResponse
+    {
+        $todayStart = now()->startOfDay();
+        $todayEnd = now()->endOfDay();
+        $weekStart = now()->startOfWeek()->startOfDay();
+        $monthStart = now()->startOfMonth()->startOfDay();
+        $inventoryQuantityColumn = Schema::hasColumn('inventory', 'quantity_on_hand') ? 'quantity_on_hand' : 'quantity';
+
+        $inventoryRows = Inventory::with('product:id,name,base_price')->get();
+        $recentOrders = Order::with('customer')
+            ->latest()
+            ->limit(6)
+            ->get()
+            ->map(function (Order $order) {
+                return [
+                    'id' => $order->id,
+                    'order_number' => 'ORD-' . str_pad((string) $order->id, 5, '0', STR_PAD_LEFT),
+                    'customer' => $order->customer ? [
+                        'id' => $order->customer->id,
+                        'name' => $order->customer->name,
+                    ] : null,
+                    'order_type' => $order->order_type,
+                    'total_amount' => (float) $order->total_amount,
+                    'status' => $order->payment_status ?: $order->fulfillment_status,
+                    'created_at' => optional($order->created_at)->toISOString(),
+                ];
+            })
+            ->values();
+
+        $topCustomers = Customer::select('customers.id', 'customers.name')
+            ->selectRaw('COUNT(orders.id) as order_count, SUM(orders.total_amount) as total_spent')
+            ->leftJoin('orders', 'customers.id', '=', 'orders.customer_id')
+            ->groupBy('customers.id', 'customers.name')
+            ->orderByDesc('total_spent')
+            ->limit(5)
+            ->get()
+            ->map(fn ($c) => [
+                'id'          => $c->id,
+                'name'        => $c->name,
+                'order_count' => (int) $c->order_count,
+                'total_spent' => (float) $c->total_spent,
+            ])
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'headline' => [
+                    'todaysSales' => (float) Order::whereBetween('created_at', [$todayStart, $todayEnd])->sum('total_amount'),
+                    'ordersToday' => (int) Order::whereBetween('created_at', [$todayStart, $todayEnd])->count(),
+                    'weekRevenue' => (float) Order::whereBetween('created_at', [$weekStart, now()])->sum('total_amount'),
+                    'monthRevenue' => (float) Order::whereBetween('created_at', [$monthStart, now()])->sum('total_amount'),
+                    'outstanding' => (float) Order::sum('outstanding_balance'),
+                ],
+                'operations' => [
+                    'pendingDeliveries' => (int) Order::whereIn('fulfillment_type', ['delivery', 'pickup'])->where('fulfillment_status', 'pending')->count(),
+                    'enRouteDeliveries' => (int) Order::where('fulfillment_status', 'in_progress')->count(),
+                    'openPurchaseOrders' => (int) PurchaseOrder::where('status', 'pending')->count(),
+                    'receivedToday' => (int) PurchaseOrder::whereDate('actual_delivery_date', today())->count(),
+                ],
+                'inventory' => [
+                    'totalSkus' => (int) Product::count(),
+                    'currentStockQuantity' => (float) $inventoryRows->sum($inventoryQuantityColumn),
+                    'lowStockCount' => (int) $inventoryRows->filter(function ($item) {
+                        return (float) ($item->quantity_on_hand ?? $item->quantity ?? 0) <= (float) $item->reorder_point;
+                    })->count(),
+                    'inventoryValue' => (float) $inventoryRows->sum(function ($item) {
+                        return (float) ($item->quantity_on_hand ?? $item->quantity ?? 0) * (float) ($item->product?->base_price ?? 0);
+                    }),
+                    'lowStockItems' => $inventoryRows->filter(function ($item) {
+                        return (float) ($item->quantity_on_hand ?? $item->quantity ?? 0) <= (float) $item->reorder_point;
+                    })->sortBy(function ($item) {
+                        return (float) ($item->quantity_on_hand ?? $item->quantity ?? 0) - (float) $item->reorder_point;
+                    })->take(5)->map(function ($item) {
+                        return [
+                            'product' => $item->product?->name ?? 'Unknown Product',
+                            'current' => (float) ($item->quantity_on_hand ?? $item->quantity ?? 0),
+                            'reorder' => (float) $item->reorder_point,
+                        ];
+                    })->values(),
+                ],
+                'recentOrders' => $recentOrders,
+                'customers' => [
+                    'total'       => (int) Customer::count(),
+                    'newToday'    => (int) Customer::whereBetween('created_at', [$todayStart, $todayEnd])->count(),
+                    'newThisWeek' => (int) Customer::whereBetween('created_at', [$weekStart, now()])->count(),
+                    'topCustomers' => $topCustomers,
+                ],
+            ],
+        ]);
+    }
+
     private function resolveDateRange(Request $request): array
     {
         $period = $request->query('period', 'month');
+
+        if ($period === 'all') {
+            $firstOrderDate = Order::query()->min('created_at');
+            $start = $firstOrderDate ? Carbon::parse($firstOrderDate)->startOfDay() : now()->startOfMonth()->startOfDay();
+
+            return [$start, now()->endOfDay()];
+        }
 
         if ($period === 'today') {
             return [Carbon::today()->startOfDay(), Carbon::today()->endOfDay()];

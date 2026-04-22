@@ -1,14 +1,23 @@
-export const getOrderTypeRuleMessage = (orderType) => {
-  return orderType === 'wholesale'
-    ? 'Wholesale orders must be 10kg or more per item.'
-    : 'Retail orders must be below 10kg per item.';
+export const getCustomerPricingRuleMessage = (customerType = 'retail', unitOfMeasure = 'kg') => {
+  if (unitOfMeasure !== 'kg') {
+    return 'Pack-based products are priced per pack and do not use the 10kg threshold.';
+  }
+
+  return customerType === 'wholesale'
+    ? 'Wholesale customers must order at least 10kg per kilogram-based item.'
+    : 'Retail customers must stay below 10kg per kilogram-based item.';
 };
 
-export const findOrderTypeQuantityViolation = (items = [], orderType = 'retail') => {
+export const findCustomerPricingQuantityViolation = (items = [], customerType = 'retail', resolveUnit = () => 'kg') => {
   const violatingIndex = items.findIndex((item) => {
     const quantity = Number(item?.quantity ?? 0);
+    const unitOfMeasure = resolveUnit(item);
 
-    if (orderType === 'wholesale') {
+    if (unitOfMeasure !== 'kg') {
+      return false;
+    }
+
+    if (customerType === 'wholesale') {
       return quantity < 10;
     }
 
@@ -21,8 +30,13 @@ export const findOrderTypeQuantityViolation = (items = [], orderType = 'retail')
 
   return {
     index: violatingIndex,
-    message: `Item ${violatingIndex + 1}: ${getOrderTypeRuleMessage(orderType)}`,
+    message: `Item ${violatingIndex + 1}: ${getCustomerPricingRuleMessage(customerType)}`,
   };
+};
+
+export const getOrderTypeRuleMessage = getCustomerPricingRuleMessage;
+export const findOrderTypeQuantityViolation = (items = [], orderType = 'retail') => {
+  return findCustomerPricingQuantityViolation(items, orderType);
 };
 
 export const getApiErrorMessage = (error, fallbackMessage) => {

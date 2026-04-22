@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Product;
 use App\Models\Pricing;
+use App\Support\PricingMath;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -52,7 +53,7 @@ class ProductSeeder extends Seeder
                 [
                     'category' => $item['category'],
                     'description' => null,
-                    'unit_of_measure' => $item['unit_of_measure'],
+                    'unit_of_measure' => in_array($item['unit_of_measure'], ['pack', 'pc'], true) ? 'Per pack' : $item['unit_of_measure'],
                     'base_price' => $item['retail'],
                     'reorder_quantity' => 0,
                     'status' => 'active',
@@ -77,7 +78,13 @@ class ProductSeeder extends Seeder
                 Pricing::create([
                     'product_id' => $product->id,
                     'retail_price' => $item['retail'],
-                    'wholesale_price' => $item['wholesale'],
+                    'discount_percent' => $item['retail'] > 0
+                        ? PricingMath::normalizeDiscountPercent((1 - ($item['wholesale'] / $item['retail'])) * 100)
+                        : 0,
+                    'discounted_price' => PricingMath::calculateDiscountedPrice(
+                        $item['retail'],
+                        $item['retail'] > 0 ? (1 - ($item['wholesale'] / $item['retail'])) * 100 : 0
+                    ),
                     'effective_date' => $now,
                     'status' => 'active',
                 ]);

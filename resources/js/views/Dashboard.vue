@@ -7,32 +7,46 @@
       </div>
 
       <ul class="nav-menu">
-        <li class="menu-group">
+        <li>
+          <router-link to="/" :class="{ active: activeMenu === 'dashboard' }" @click="setActiveMenu('dashboard')">
+            <ClipboardList class="menu-icon" :size="18" />
+            <span class="tab-label">Dashboard</span>
+          </router-link>
+        </li>
+
+        <!-- Customer Orders — sales + admin -->
+        <li v-if="authStore.hasPermission('customer-orders')" class="menu-group">
           <button class="group-head" :class="{ active: activeMenu === 'customer-group' }" type="button" @click="toggleAndActivate('customer', 'customer-group')">
-            <span class="menu-icon">🛒</span>
+            <ClipboardList class="menu-icon" :size="18" />
             <span>Customer Orders</span>
             <span class="group-caret">{{ customerOrdersOpen ? '▾' : '▸' }}</span>
           </button>
           <div v-if="customerOrdersOpen" class="sub-links">
             <router-link to="/customers" :class="{ active: activeMenu === 'customer-profile' }" @click="setActiveMenu('customer-profile')">Customer Profile</router-link>
+            <router-link to="/orders" :class="{ active: activeMenu === 'orders' }" @click="setActiveMenu('orders')">Order History</router-link>
             <router-link to="/pos" :class="{ active: activeMenu === 'walk-in' }" @click="setActiveMenu('walk-in')">Walk-In</router-link>
-            <router-link to="/orders" :class="{ active: activeMenu === 'payment' }" @click="setActiveMenu('payment')">Payment</router-link>
+            <router-link to="/payments" :class="{ active: activeMenu === 'payment-management' }" @click="setActiveMenu('payment-management')">Payment Management</router-link>
           </div>
         </li>
-        <li class="menu-group">
+
+        <!-- Inventory — inventory + purchasing + admin -->
+        <li v-if="authStore.hasPermission('inventory')" class="menu-group">
           <button class="group-head" :class="{ active: activeMenu === 'inventory-group' }" type="button" @click="toggleAndActivate('inventory', 'inventory-group')">
-            <span class="menu-icon">🏬</span>
+            <Boxes class="menu-icon" :size="18" />
             <span>Inventory</span>
             <span class="group-caret">{{ inventoryOpen ? '▾' : '▸' }}</span>
           </button>
           <div v-if="inventoryOpen" class="sub-links">
             <router-link to="/inventory" :class="{ active: activeMenu === 'current-stock' }" @click="setActiveMenu('current-stock')">Current Stock</router-link>
+            <router-link to="/inventory/categories" :class="{ active: activeMenu === 'inventory-categories' }" @click="setActiveMenu('inventory-categories')">Categories</router-link>
             <router-link to="/inventory/movements" :class="{ active: activeMenu === 'stock-movement' }" @click="setActiveMenu('stock-movement')">Stock Movement</router-link>
           </div>
         </li>
-        <li class="menu-group">
+
+        <!-- Purchasing — purchasing + admin -->
+        <li v-if="authStore.hasPermission('purchasing')" class="menu-group">
           <button class="group-head" :class="{ active: activeMenu === 'purchasing-group' }" type="button" @click="toggleAndActivate('purchasing', 'purchasing-group')">
-            <span class="menu-icon">👜</span>
+            <Truck class="menu-icon" :size="18" />
             <span>Purchasing</span>
             <span class="group-caret">{{ purchasingOpen ? '▾' : '▸' }}</span>
           </button>
@@ -41,15 +55,19 @@
             <router-link to="/reports" :class="{ active: activeMenu === 'sales-report' }" @click="setActiveMenu('sales-report')">Sales Report</router-link>
           </div>
         </li>
-        <li>
+
+        <!-- Logistics — delivery + admin -->
+        <li v-if="authStore.hasPermission('logistics')">
           <router-link to="/deliveries" :class="{ active: activeMenu === 'logistics' }" @click="setActiveMenu('logistics')">
-            <span class="menu-icon">🚚</span>
+            <MapPinned class="menu-icon" :size="18" />
             <span class="tab-label">Logistics</span>
           </router-link>
         </li>
-        <li>
+
+        <!-- Employee — admin only -->
+        <li v-if="authStore.hasPermission('employees')">
           <router-link to="/employees" :class="{ active: activeMenu === 'employees' }" @click="setActiveMenu('employees')">
-            <span class="menu-icon">👤</span>
+            <Users class="menu-icon" :size="18" />
             <span class="tab-label">Employee</span>
           </router-link>
         </li>
@@ -57,14 +75,14 @@
 
       <div class="sidebar-footer">
         <div class="user-info" @click="router.push('/profile')">
-          <div class="user-avatar">👤</div>
+          <div class="user-avatar">U</div>
           <div>
             <p class="user-name">{{ displayName }}</p>
             <p class="user-role">{{ displayRole }}</p>
           </div>
         </div>
         <button @click="logout" class="logout-btn">
-          <span class="logout-icon">↪</span>
+          <span class="logout-icon">&#x2192;</span>
           <span>Log out</span>
         </button>
       </div>
@@ -72,7 +90,11 @@
 
     <div class="main-content">
       <header class="top-bar">
-        <h1>{{ pageTitle }}</h1>
+        <div>
+          <p class="eyebrow">LiamKai Operations</p>
+          <h1>{{ pageTitle }}</h1>
+          <p class="page-summary">{{ pageSummary }}</p>
+        </div>
         <div class="header-actions">
           <span class="time">{{ currentTime }}</span>
         </div>
@@ -88,6 +110,7 @@
 <script setup>
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { Boxes, ClipboardList, MapPinned, Truck, Users } from 'lucide-vue-next';
 import { useAuthStore } from '../stores/authStore';
 
 const router = useRouter();
@@ -101,7 +124,7 @@ const activeMenu = ref('');
 
 const displayName = computed(() => authStore.user?.name || authStore.user?.username || 'User');
 const displayRole = computed(() => authStore.user?.role || 'Owner');
-const isCustomerOrdersRoute = computed(() => route.path.startsWith('/customers') || route.path === '/pos' || route.path.startsWith('/orders'));
+const isCustomerOrdersRoute = computed(() => route.path.startsWith('/customers') || route.path === '/pos' || route.path.startsWith('/orders') || route.path.startsWith('/payments'));
 const isInventoryRoute = computed(() => route.path.startsWith('/inventory'));
 const isPurchasingRoute = computed(() => route.path.startsWith('/purchasing') || route.path === '/reports');
 const isPurchasingProfileRoute = computed(() => {
@@ -157,6 +180,10 @@ const toggleAndActivate = (group, menu) => {
 };
 
 const syncActiveMenuByRoute = () => {
+  if (route.path === '/' || route.path === '/dashboard') {
+    activeMenu.value = 'dashboard';
+    return;
+  }
   if (route.path.startsWith('/customers')) {
     activeMenu.value = 'customer-profile';
     return;
@@ -165,8 +192,12 @@ const syncActiveMenuByRoute = () => {
     activeMenu.value = 'walk-in';
     return;
   }
+  if (route.path.startsWith('/payments')) {
+    activeMenu.value = 'payment-management';
+    return;
+  }
   if (route.path.startsWith('/orders')) {
-    activeMenu.value = 'payment';
+    activeMenu.value = 'orders';
     return;
   }
   if (route.path.startsWith('/deliveries')) {
@@ -175,6 +206,10 @@ const syncActiveMenuByRoute = () => {
   }
   if (route.path === '/inventory') {
     activeMenu.value = 'current-stock';
+    return;
+  }
+  if (route.path === '/inventory/categories') {
+    activeMenu.value = 'inventory-categories';
     return;
   }
   if (route.path === '/inventory/movements') {
@@ -221,24 +256,51 @@ const syncGroupByRoute = () => {
 
 const pageTitle = computed(() => {
   const titles = {
-    'Dashboard': '📊 Dashboard',
-    'OrdersList': '📦 Orders',
-    'CreateOrder': '📦 Create Order',
-    'CustomerList': '👥 Customers',
-    'CustomerProfile': '👤 Customer Profile',
-    'POSScreen': '🏪 Walk-in POS',
-    'DeliveryList': '🚚 Delivery Management',
-    'DeliveryDetails': '🚚 Delivery Details',
-    'PurchasingDashboard': '📦 Purchasing',
-    'CreatePurchaseOrder': '📦 Create Purchase Order',
-    'ReceivingReport': '📦 Receiving Report',
-    'InventoryView': '🧊 Current Stock',
-    'StockMovement': '🧊 Stock Movements',
-    'EmployeeManagement': '👨‍💼 Employee Management',
-    'ProfilePage': '👤 My Profile',
-    'ReportsPage': '📈 Reports & Analytics'
+    'Dashboard': 'Dashboard',
+    'OrdersList': 'Order History',
+    'CreateOrder': 'Create Order',
+    'PaymentManagement': 'Payment Management',
+    'CustomerList': 'Customers',
+    'CustomerProfile': 'Customer Profile',
+    'POSScreen': 'Walk-in POS',
+    'DeliveryList': 'Logistics',
+    'DeliveryDetails': 'Delivery Details',
+    'PurchasingDashboard': 'Purchasing',
+    'CreatePurchaseOrder': 'Create Purchase Order',
+    'ReceivingReport': 'Receiving Report',
+    'InventoryView': 'Current Stock',
+    'CategoriesView': 'Categories',
+    'StockMovement': 'Stock Movements',
+    'EmployeeManagement': 'Employee Management',
+    'ProfilePage': 'My Profile',
+    'ReportsPage': 'Reports & Analytics'
   };
   return titles[route.name] || 'Dashboard';
+});
+
+const pageSummary = computed(() => {
+  const summaries = {
+    Dashboard: 'Live operational metrics across sales, inventory, logistics, and purchasing.',
+    OrdersList: 'Review order history, open the create-order modal, and manage fulfillment scheduling from one screen.',
+    CreateOrder: 'Create customer orders with customer-driven pricing, item quantities, and logistics scheduling.',
+    PaymentManagement: 'Track paid, unpaid, and partially paid orders while recording collections and balances.',
+    CustomerList: 'Manage customer records and relationship details.',
+    CustomerProfile: 'View customer history, orders, and contact information.',
+    POSScreen: 'Process walk-in sales with live product and stock data.',
+    DeliveryList: 'Review daily delivery and pickup schedules, then update fulfillment progress.',
+    DeliveryDetails: 'Inspect delivery execution and order fulfillment details.',
+    PurchasingDashboard: 'Monitor suppliers, open purchase orders, and receiving.',
+    CreatePurchaseOrder: 'Create supplier purchase orders from current inventory demand.',
+    ReceivingReport: 'Confirm received stock, defects, and shortages against a purchase order.',
+    InventoryView: 'Review current stock levels, reorder points, and adjustments.',
+    CategoriesView: 'Create, edit, and maintain the product categories used across inventory and product management.',
+    StockMovement: 'Audit every inbound, outbound, defect, and manual stock event.',
+    EmployeeManagement: 'Maintain employee records and assignments.',
+    ProfilePage: 'Update account identity and access information.',
+    ReportsPage: 'Analyze sales, payments, inventory, and customer performance'
+  };
+
+  return summaries[route.name] || 'Monitor daily activity and key business operations.';
 });
 
 const logout = () => {
@@ -489,8 +551,6 @@ watch(() => route.path, () => {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  position: relative;
-  z-index: 1;
   overflow: hidden;
 }
 
@@ -503,10 +563,26 @@ watch(() => route.path, () => {
   align-items: center;
 }
 
+.eyebrow {
+  margin: 0 0 6px;
+  color: #d77227;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .top-bar h1 {
   margin: 0;
   color: #0a1d37;
-  font-size: 24px;
+  font-size: 32px;
+  line-height: 1.1;
+}
+
+.page-summary {
+  margin: 8px 0 0;
+  color: #526277;
+  font-size: 14px;
 }
 
 .header-actions {

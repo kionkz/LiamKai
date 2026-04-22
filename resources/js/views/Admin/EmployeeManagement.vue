@@ -1,155 +1,216 @@
 <template>
   <div class="employees-container">
-    <div class="header-section">
-      <div class="header-left">
-        <h1>Employee Management</h1>
+    <div class="actions-bar">
+      <div class="selection-state">
+        <strong>{{ selectedEmployee ? selectedEmployee.name : 'No employee selected' }}</strong>
+        <span>{{ selectedEmployee ? 'Toolbar actions are enabled for the selected record.' : 'Select a row to edit, change status, or delete.' }}</span>
+      </div>
+      <div class="toolbar-actions">
+        <button @click="openCreateModal" class="btn btn-primary">New Employee</button>
+        <button @click="openEditSelected" class="btn btn-secondary" :disabled="!selectedEmployee">Edit</button>
+        <button @click="openCreateAccountModal" class="btn btn-secondary" :disabled="!selectedEmployee">Manage Account</button>
+        <button @click="toggleSelectedStatus" class="btn btn-secondary" :disabled="!selectedEmployee">
+          {{ selectedEmployee?.status === 'active' ? 'Deactivate' : 'Activate' }}
+        </button>
+        <button @click="openDeleteConfirm" class="btn btn-danger" :disabled="!selectedEmployee">Delete</button>
       </div>
     </div>
 
     <div class="filters">
-      <input v-model="searchQuery" type="text" placeholder="Search employees..." class="search-box" />
-      <select v-model="roleFilter" class="filter-select" data-searchable="off">
+      <input
+        v-model="searchQuery"
+        type="text"
+        placeholder="Search employees by name, email, role, or phone"
+        class="search-box"
+        @keyup.enter="applyFilters"
+      />
+      <select v-model="roleFilter" class="filter-select" data-searchable="off" @change="applyFilters">
         <option value="">All Roles</option>
-        <option value="admin">Admin</option>
-        <option value="sales">Sales</option>
-        <option value="delivery">Delivery</option>
-        <option value="inventory">Inventory</option>
-        <option value="purchasing">Purchasing</option>
+        <option v-for="role in roleOptions" :key="role.value" :value="role.value">{{ role.label }}</option>
       </select>
-      <button @click="showAddModal = true" class="btn btn-primary">+ Add Employee</button>
+      <select v-model="statusFilter" class="filter-select" data-searchable="off" @change="applyFilters">
+        <option value="">All Statuses</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+      <button class="btn btn-secondary" @click="applyFilters">Search</button>
+      <button class="btn btn-secondary btn-ghost" @click="clearFilters" :disabled="!hasFilters">Clear</button>
     </div>
 
     <p v-if="loading" class="state-message">Loading employees...</p>
     <p v-if="errorMessage" class="state-message error">{{ errorMessage }}</p>
     <p v-if="successMessage" class="state-message success">{{ successMessage }}</p>
 
-    <table class="employees-table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Email</th>
-          <th>Role</th>
-          <th>Status</th>
-          <th>Last Login</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="emp in filteredEmployees" :key="emp.id">
-          <td class="name">{{ emp.name }}</td>
-          <td>{{ emp.email }}</td>
-          <td>
-            <span class="role-badge" :class="emp.role">{{ emp.role.charAt(0).toUpperCase() + emp.role.slice(1) }}</span>
-          </td>
-          <td>
-            <span class="status-badge" :class="emp.status">{{ emp.status === 'active' ? 'Active' : 'Inactive' }}</span>
-          </td>
-          <td>{{ formatLastLogin(emp.lastLogin) }}</td>
-          <td class="actions">
-            <button @click="editEmployee(emp)" class="btn-small">Edit</button>
-            <button @click="viewLoginLogs(emp)" class="btn-small">Logs</button>
-            <button @click="toggleStatus(emp)" :class="['btn-small', emp.status]">{{ emp.status === 'active' ? 'Deactivate' : 'Activate' }}</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="select-column"></th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Phone</th>
+            <th>Status</th>
+            <th>Account</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="employees.length === 0">
+            <td colspan="7" class="no-data">No employees found.</td>
+          </tr>
+          <tr
+            v-for="emp in employees"
+            :key="emp.id"
+            @click="toggleSelection(emp.id)"
+            :class="{ 'selected-row': selectedEmployeeId === emp.id }"
+          >
+            <td class="select-column" @click.stop>
+              <input type="checkbox" :checked="selectedEmployeeId === emp.id" @change="toggleSelection(emp.id)" />
+            </td>
+            <td class="name-cell">{{ emp.name }}</td>
+            <td>{{ emp.email }}</td>
+            <td>
+              <span class="role-badge" :class="emp.role">{{ capitalize(emp.role) }}</span>
+            </td>
+            <td>{{ emp.phone || '-' }}</td>
+            <td>
+              <span class="status-badge" :class="emp.status">{{ emp.status === 'active' ? 'Active' : 'Inactive' }}</span>
+            </td>
+            <td>
+              <span v-if="emp.user" class="account-badge" :class="emp.user.account_status">
+                {{ emp.user.account_status === 'active' ? '✓ Active' : '✗ Inactive' }}
+              </span>
+              <span v-else class="account-badge none">No Account</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
-    <div class="pagination" v-if="pagination.last_page > 1">
-      <button class="btn btn-secondary" @click="changePage(pagination.current_page - 1)" :disabled="pagination.current_page === 1">Previous</button>
-      <span class="page-info">Page {{ pagination.current_page }} of {{ pagination.last_page }}</span>
-      <button class="btn btn-secondary" @click="changePage(pagination.current_page + 1)" :disabled="pagination.current_page === pagination.last_page">Next</button>
+      <div class="pagination" v-if="pagination.last_page > 1">
+        <button class="btn btn-secondary" @click="changePage(pagination.current_page - 1)" :disabled="pagination.current_page === 1">Previous</button>
+        <span class="page-info">Page {{ pagination.current_page }} of {{ pagination.last_page }}</span>
+        <button class="btn btn-secondary" @click="changePage(pagination.current_page + 1)" :disabled="pagination.current_page === pagination.last_page">Next</button>
+      </div>
     </div>
 
-    <!-- Add/Edit Employee Modal -->
     <div v-if="showAddModal" class="modal-overlay" @click.self="closeModal">
-      <div class="modal-content">
+      <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h2>{{ editingEmployee ? 'Edit Employee' : 'Add New Employee' }}</h2>
-          <button @click="closeModal" class="close-btn">×</button>
+          <h2>{{ editingEmployee ? 'Edit Employee' : 'New Employee' }}</h2>
+          <button @click="closeModal" class="btn-close">&times;</button>
         </div>
 
-        <form @submit.prevent="saveEmployee" class="employee-form">
+        <form @submit.prevent="saveEmployee" class="modal-form">
           <div class="form-group">
-            <label>Full Name</label>
+            <label>Full Name *</label>
             <input v-model="formData.name" type="text" required />
           </div>
-
           <div class="form-group">
-            <label>Email</label>
+            <label>Email *</label>
             <input v-model="formData.email" type="email" required />
           </div>
-
           <div class="form-group">
-            <label>Role</label>
-            <SearchableSelect v-model="formData.role" :options="employeeRoleOptions" placeholder="Select Role" />
+            <label>Role *</label>
+            <select v-model="formData.role" required data-searchable="off">
+              <option value="">Select Role</option>
+              <option v-for="role in roleOptions" :key="role.value" :value="role.value">{{ role.label }}</option>
+            </select>
           </div>
-
-          <div class="form-group">
-            <label>Position</label>
-            <input v-model="formData.position" type="text" required />
-          </div>
-
           <div class="form-group">
             <label>Phone</label>
             <input v-model="formData.phone" type="text" />
           </div>
-
           <div class="form-group">
             <label>Address</label>
             <input v-model="formData.address" type="text" />
           </div>
-
-          <div v-if="!editingEmployee" class="form-group">
-            <label>Password</label>
-            <input v-model="formData.password" type="password" placeholder="Temporary password" required />
+          <div class="form-group inline-check">
+            <label><input v-model="formData.active" type="checkbox" /> Active</label>
           </div>
-
-          <div class="form-group">
-            <label>
-              <input v-model="formData.active" type="checkbox" />
-              Active
-            </label>
-          </div>
-
-          <div class="modal-footer">
+          <div class="modal-actions">
             <button type="button" @click="closeModal" class="btn btn-secondary">Cancel</button>
-            <button type="submit" class="btn btn-primary">{{ editingEmployee ? 'Update' : 'Add' }} Employee</button>
+            <button type="submit" :disabled="saving" class="btn btn-primary">
+              {{ saving ? 'Saving...' : (editingEmployee ? 'Update Employee' : 'Create Employee') }}
+            </button>
           </div>
         </form>
       </div>
     </div>
 
-    <!-- Login Logs Modal -->
-    <div v-if="showLogsModal" class="modal-overlay" @click.self="closeLogsModal">
-      <div class="modal-content modal-large">
+    <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
+      <div class="modal-content small-modal" @click.stop>
+        <h3>Delete Employee</h3>
+        <p>Delete "{{ selectedEmployee?.name }}" from the employee directory?</p>
+        <p class="warning">This action cannot be undone.</p>
+        <div class="modal-actions">
+          <button @click="showDeleteModal = false" class="btn btn-secondary">Cancel</button>
+          <button @click="confirmDelete" :disabled="deleting" class="btn btn-danger">
+            {{ deleting ? 'Deleting...' : 'Delete Employee' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Account Management Modal -->
+    <div v-if="showAccountModal" class="modal-overlay" @click.self="showAccountModal = false">
+      <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h2>Login History - {{ selectedEmployee?.name }}</h2>
-          <button @click="closeLogsModal" class="close-btn">×</button>
+          <h2>Account — {{ selectedEmployee?.name }}</h2>
+          <button @click="showAccountModal = false" class="btn-close">&times;</button>
         </div>
 
-        <div class="modal-body">
-          <table class="logs-table">
-            <thead>
-              <tr>
-                <th>Date & Time</th>
-                <th>IP Address</th>
-                <th>Device</th>
-                <th>Location</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(log, idx) in loginLogs" :key="idx">
-                <td>{{ formatDateTime(log.timestamp) }}</td>
-                <td>{{ log.ip }}</td>
-                <td>{{ log.device }}</td>
-                <td>{{ log.location }}</td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- Employee has no account yet -->
+        <div v-if="!selectedEmployee?.user" class="account-section">
+          <p class="account-info">This employee does not have a system account yet. Create one below.</p>
+          <form @submit.prevent="createAccount" class="modal-form">
+            <div class="form-group">
+              <label>Username *</label>
+              <input v-model="accountForm.username" type="text" required autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label>Password *</label>
+              <input v-model="accountForm.password" type="password" required autocomplete="new-password" />
+            </div>
+            <div class="form-group">
+              <label>Confirm Password *</label>
+              <input v-model="accountForm.password_confirmation" type="password" required autocomplete="new-password" />
+            </div>
+            <p v-if="accountError" class="state-message error" style="margin-top:8px;">{{ accountError }}</p>
+            <div class="modal-actions">
+              <button type="button" @click="showAccountModal = false" class="btn btn-secondary">Cancel</button>
+              <button type="submit" :disabled="accountSaving" class="btn btn-primary">
+                {{ accountSaving ? 'Creating...' : 'Create Account' }}
+              </button>
+            </div>
+          </form>
         </div>
 
-        <div class="modal-footer">
-          <button @click="closeLogsModal" class="btn btn-secondary">Close</button>
+        <!-- Employee already has an account -->
+        <div v-else class="account-section">
+          <div class="account-detail-row">
+            <span class="account-detail-label">Username</span>
+            <span class="account-detail-value">{{ selectedEmployee.user.username }}</span>
+          </div>
+          <div class="account-detail-row">
+            <span class="account-detail-label">Role</span>
+            <span class="account-detail-value">{{ capitalize(selectedEmployee.user.role) }}</span>
+          </div>
+          <div class="account-detail-row">
+            <span class="account-detail-label">Status</span>
+            <span class="account-badge" :class="selectedEmployee.user.account_status">
+              {{ selectedEmployee.user.account_status === 'active' ? '✓ Active' : '✗ Inactive' }}
+            </span>
+          </div>
+          <p v-if="accountError" class="state-message error" style="margin-top:8px;">{{ accountError }}</p>
+          <div class="modal-actions">
+            <button @click="showAccountModal = false" class="btn btn-secondary">Close</button>
+            <button @click="toggleAccountStatus" :disabled="accountSaving" class="btn btn-secondary">
+              {{ accountSaving ? 'Updating...' : (selectedEmployee.user.account_status === 'active' ? 'Deactivate Account' : 'Activate Account') }}
+            </button>
+            <button @click="revokeAccount" :disabled="accountSaving" class="btn btn-danger">
+              {{ accountSaving ? 'Revoking...' : 'Revoke Account' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -157,36 +218,30 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import api from '../../api';
-import SearchableSelect from '../../components/SearchableSelect.vue';
 
 const searchQuery = ref('');
 const roleFilter = ref('');
+const statusFilter = ref('');
 const showAddModal = ref(false);
-const showLogsModal = ref(false);
+const showDeleteModal = ref(false);
+const showAccountModal = ref(false);
 const editingEmployee = ref(null);
-const selectedEmployee = ref(null);
+const selectedEmployeeId = ref(null);
 const loading = ref(false);
+const saving = ref(false);
+const deleting = ref(false);
+const accountSaving = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
-const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
+const accountError = ref('');
 
+const accountForm = ref({ username: '', password: '', password_confirmation: '' });
+const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
 const employees = ref([]);
 
-const formData = ref({
-  name: '',
-  email: '',
-  role: '',
-  position: '',
-  phone: '',
-  address: '',
-  password: '',
-  active: true,
-});
-
-const employeeRoleOptions = [
-  { value: '', label: 'Select Role' },
+const roleOptions = [
   { value: 'admin', label: 'Admin' },
   { value: 'sales', label: 'Sales' },
   { value: 'delivery', label: 'Delivery' },
@@ -194,34 +249,44 @@ const employeeRoleOptions = [
   { value: 'purchasing', label: 'Purchasing' },
 ];
 
-const loginLogs = ref([
-  { timestamp: '2024-02-18T14:30:00', ip: '192.168.1.100', device: 'Chrome on Windows', location: 'Manila, PH' },
-  { timestamp: '2024-02-18T09:15:00', ip: '192.168.1.100', device: 'Safari on Mac', location: 'Manila, PH' },
-  { timestamp: '2024-02-17T14:45:00', ip: '192.168.1.105', device: 'Chrome on Windows', location: 'Manila, PH' },
-]);
-
-const filteredEmployees = computed(() => {
-  return employees.value.filter(emp => {
-    const matchSearch = emp.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-                       emp.email.toLowerCase().includes(searchQuery.value.toLowerCase());
-    const matchRole = !roleFilter.value || emp.role === roleFilter.value;
-    return matchSearch && matchRole;
-  });
+const formData = ref({
+  name: '',
+  email: '',
+  role: '',
+  phone: '',
+  address: '',
+  active: true,
 });
 
-const formatLastLogin = (timestamp) => {
-  if (!timestamp) return '--';
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffMinutes = Math.floor((now - date) / 60000);
-  
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)}h ago`;
-  return date.toLocaleDateString();
+const selectedEmployee = computed(() => employees.value.find((emp) => emp.id === selectedEmployeeId.value) || null);
+const hasFilters = computed(() => !!(searchQuery.value || roleFilter.value || statusFilter.value));
+
+const capitalize = (str) => str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
+
+const clearMessages = () => {
+  errorMessage.value = '';
+  successMessage.value = '';
 };
 
-const formatDateTime = (timestamp) => {
-  return new Date(timestamp).toLocaleString();
+const resetForm = () => {
+  formData.value = {
+    name: '',
+    email: '',
+    role: '',
+    phone: '',
+    address: '',
+    active: true,
+  };
+};
+
+const toggleSelection = (employeeId) => {
+  selectedEmployeeId.value = selectedEmployeeId.value === employeeId ? null : employeeId;
+};
+
+const openCreateModal = () => {
+  editingEmployee.value = null;
+  resetForm();
+  showAddModal.value = true;
 };
 
 const closeModal = () => {
@@ -230,41 +295,32 @@ const closeModal = () => {
   resetForm();
 };
 
-const closeLogsModal = () => {
-  showLogsModal.value = false;
-  selectedEmployee.value = null;
-};
-
-const resetForm = () => {
-  formData.value = {
-    name: '',
-    email: '',
-    role: '',
-    position: '',
-    phone: '',
-    address: '',
-    password: '',
-    active: true,
-  };
-};
-
 const loadEmployees = async (page = 1) => {
   loading.value = true;
-  errorMessage.value = '';
+  clearMessages();
+
   try {
     const response = await api.get('/employees', {
-      params: { page, per_page: pagination.value.per_page }
+      params: {
+        page,
+        per_page: pagination.value.per_page,
+        search: searchQuery.value.trim(),
+        role: roleFilter.value,
+        status: statusFilter.value,
+      },
     });
-    if (response.data?.success) {
-      pagination.value = response.data.pagination || pagination.value;
-      employees.value = (response.data.data || []).map((emp) => ({
-        ...emp,
-        active: emp.status === 'active',
-        lastLogin: emp.updated_at,
-      }));
+
+    if (!response.data?.success) {
+      errorMessage.value = response.data?.message || 'Failed to load employees';
       return;
     }
-    errorMessage.value = response.data?.message || 'Failed to load employees';
+
+    employees.value = response.data.data || [];
+    pagination.value = response.data.pagination || pagination.value;
+
+    if (selectedEmployeeId.value && !employees.value.some((employee) => employee.id === selectedEmployeeId.value)) {
+      selectedEmployeeId.value = null;
+    }
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Failed to load employees';
   } finally {
@@ -272,90 +328,195 @@ const loadEmployees = async (page = 1) => {
   }
 };
 
+const applyFilters = () => {
+  selectedEmployeeId.value = null;
+  loadEmployees(1);
+};
+
+const clearFilters = () => {
+  searchQuery.value = '';
+  roleFilter.value = '';
+  statusFilter.value = '';
+  applyFilters();
+};
+
 const changePage = (page) => {
   if (page < 1 || page > pagination.value.last_page) return;
   loadEmployees(page);
 };
 
-const editEmployee = (emp) => {
-  editingEmployee.value = emp;
+const openEditSelected = () => {
+  if (!selectedEmployee.value) return;
+
+  editingEmployee.value = selectedEmployee.value;
   formData.value = {
-    name: emp.name,
-    email: emp.email,
-    role: emp.role,
-    position: emp.position || '',
-    phone: emp.phone || '',
-    address: emp.address || '',
-    password: '',
-    active: emp.status === 'active',
+    name: selectedEmployee.value.name,
+    email: selectedEmployee.value.email,
+    role: selectedEmployee.value.role,
+    phone: selectedEmployee.value.phone || '',
+    address: selectedEmployee.value.address || '',
+    active: selectedEmployee.value.status === 'active',
   };
   showAddModal.value = true;
 };
 
 const saveEmployee = async () => {
-  errorMessage.value = '';
-  successMessage.value = '';
+  saving.value = true;
+  clearMessages();
 
   const payload = {
     name: formData.value.name,
     email: formData.value.email,
     role: formData.value.role,
-    position: formData.value.position,
     phone: formData.value.phone || null,
     address: formData.value.address || null,
     status: formData.value.active ? 'active' : 'inactive',
   };
 
   try {
-    if (editingEmployee.value) {
-      const response = await api.put(`/employees/${editingEmployee.value.id}`, payload);
-      if (!response.data?.success) {
-        errorMessage.value = response.data?.message || 'Failed to update employee';
-        return;
-      }
-      successMessage.value = 'Employee updated successfully';
-    } else {
-      const response = await api.post('/employees', payload);
-      if (!response.data?.success) {
-        errorMessage.value = response.data?.message || 'Failed to create employee';
-        return;
-      }
-      successMessage.value = 'Employee created successfully';
-    }
+    const response = editingEmployee.value
+      ? await api.put(`/employees/${editingEmployee.value.id}`, payload)
+      : await api.post('/employees', payload);
 
-    await loadEmployees(pagination.value.current_page);
-    closeModal();
-  } catch (error) {
-    const validationError = error.response?.data?.errors
-      ? Object.values(error.response.data.errors).flat().join(' ')
-      : null;
-    errorMessage.value = validationError || error.response?.data?.message || 'Failed to save employee';
-  }
-};
-
-const toggleStatus = async (emp) => {
-  errorMessage.value = '';
-  successMessage.value = '';
-  const nextStatus = emp.status === 'active' ? 'inactive' : 'active';
-
-  try {
-    const response = await api.put(`/employees/${emp.id}`, { status: nextStatus });
     if (!response.data?.success) {
-      errorMessage.value = response.data?.message || 'Failed to update status';
+      errorMessage.value = response.data?.message || 'Failed to save employee';
       return;
     }
 
-    emp.status = nextStatus;
-    emp.active = nextStatus === 'active';
-    successMessage.value = `Employee ${nextStatus === 'active' ? 'activated' : 'deactivated'} successfully`;
+    successMessage.value = editingEmployee.value ? 'Employee updated successfully.' : 'Employee created successfully.';
+    closeModal();
+    await loadEmployees(pagination.value.current_page);
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Failed to update status';
+    const validationErrors = error.response?.data?.errors
+      ? Object.values(error.response.data.errors).flat().join(' ')
+      : null;
+    errorMessage.value = validationErrors || error.response?.data?.message || 'Failed to save employee';
+  } finally {
+    saving.value = false;
   }
 };
 
-const viewLoginLogs = (emp) => {
-  selectedEmployee.value = emp;
-  showLogsModal.value = true;
+const toggleSelectedStatus = async () => {
+  if (!selectedEmployee.value) return;
+
+  clearMessages();
+  const nextStatus = selectedEmployee.value.status === 'active' ? 'inactive' : 'active';
+
+  try {
+    const response = await api.put(`/employees/${selectedEmployee.value.id}`, { status: nextStatus });
+    if (!response.data?.success) {
+      errorMessage.value = response.data?.message || 'Failed to update employee status';
+      return;
+    }
+
+    successMessage.value = `Employee ${nextStatus === 'active' ? 'activated' : 'deactivated'} successfully.`;
+    await loadEmployees(pagination.value.current_page);
+  } catch (error) {
+    errorMessage.value = error.response?.data?.message || 'Failed to update employee status';
+  }
+};
+
+const openDeleteConfirm = () => {
+  if (!selectedEmployee.value) return;
+  showDeleteModal.value = true;
+};
+
+const confirmDelete = async () => {
+  if (!selectedEmployee.value) return;
+
+  deleting.value = true;
+  clearMessages();
+
+  try {
+    const response = await api.delete(`/employees/${selectedEmployee.value.id}`);
+    if (!response.data?.success) {
+      errorMessage.value = response.data?.message || 'Failed to delete employee';
+      return;
+    }
+
+    showDeleteModal.value = false;
+    selectedEmployeeId.value = null;
+    successMessage.value = 'Employee deleted successfully.';
+
+    const targetPage = employees.value.length === 1 && pagination.value.current_page > 1
+      ? pagination.value.current_page - 1
+      : pagination.value.current_page;
+
+    await loadEmployees(targetPage);
+  } catch (error) {
+    errorMessage.value = error.response?.data?.message || 'Failed to delete employee';
+  } finally {
+    deleting.value = false;
+  }
+};
+
+const openCreateAccountModal = () => {
+  if (!selectedEmployee.value) return;
+  accountError.value = '';
+  accountForm.value = { username: '', password: '', password_confirmation: '' };
+  showAccountModal.value = true;
+};
+
+const createAccount = async () => {
+  accountError.value = '';
+  if (accountForm.value.password !== accountForm.value.password_confirmation) {
+    accountError.value = 'Passwords do not match.';
+    return;
+  }
+  accountSaving.value = true;
+  try {
+    const response = await api.post(`/employees/${selectedEmployee.value.id}/account`, accountForm.value);
+    if (!response.data?.success) {
+      accountError.value = response.data?.message || 'Failed to create account.';
+      return;
+    }
+    successMessage.value = response.data.message;
+    // If email failed, the message already contains the warning — highlight it
+    if (response.data.email_sent === false) {
+      errorMessage.value = `⚠ Email could not be sent to ${selectedEmployee.value.email}. Please share the credentials manually.`;
+    }
+    showAccountModal.value = false;
+    await loadEmployees(pagination.value.current_page);
+  } catch (error) {
+    const errs = error.response?.data?.errors;
+    accountError.value = errs ? Object.values(errs).flat().join(' ') : (error.response?.data?.message || 'Failed to create account.');
+  } finally {
+    accountSaving.value = false;
+  }
+};
+
+const revokeAccount = async () => {
+  if (!selectedEmployee.value || !confirm(`Revoke account for ${selectedEmployee.value.name}? They will no longer be able to log in.`)) return;
+  accountSaving.value = true;
+  accountError.value = '';
+  try {
+    const response = await api.delete(`/employees/${selectedEmployee.value.id}/account`);
+    if (!response.data?.success) { accountError.value = response.data?.message || 'Failed to revoke account.'; return; }
+    successMessage.value = response.data.message;
+    showAccountModal.value = false;
+    await loadEmployees(pagination.value.current_page);
+  } catch (error) {
+    accountError.value = error.response?.data?.message || 'Failed to revoke account.';
+  } finally {
+    accountSaving.value = false;
+  }
+};
+
+const toggleAccountStatus = async () => {
+  if (!selectedEmployee.value) return;
+  accountSaving.value = true;
+  accountError.value = '';
+  try {
+    const response = await api.patch(`/employees/${selectedEmployee.value.id}/account/toggle-status`);
+    if (!response.data?.success) { accountError.value = response.data?.message || 'Failed to update account status.'; return; }
+    successMessage.value = response.data.message;
+    showAccountModal.value = false;
+    await loadEmployees(pagination.value.current_page);
+  } catch (error) {
+    accountError.value = error.response?.data?.message || 'Failed to update account status.';
+  } finally {
+    accountSaving.value = false;
+  }
 };
 
 onMounted(() => {
@@ -365,134 +526,248 @@ onMounted(() => {
 
 <style scoped>
 .employees-container {
+  max-width: 1400px;
+  margin: 0 auto;
   animation: fadeIn 0.3s ease-in;
+  padding: 20px 0;
 }
 
 .header-section {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 25px;
+  margin-bottom: 16px;
 }
 
 .header-section h1 {
   margin: 0;
-  color: #0a1d37;
+  color: #102746;
+  font-size: 30px;
+  font-weight: 700;
 }
 
-.header-left {
+.page-summary {
+  margin: 8px 0 0;
+  color: #607089;
+  font-size: 14px;
+}
+
+.actions-bar,
+.filters,
+.table-container {
+  background: #ffffff;
+  border: 1px solid #e7ebf2;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.actions-bar {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
 }
 
-.btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  text-decoration: none;
-  display: inline-block;
-  transition: all 0.3s;
+.selection-state {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.btn-primary {
-  background-color: #e57c2a;
-  color: white;
+.selection-state strong {
+  color: #102746;
+  font-size: 15px;
 }
 
-.btn-primary:hover {
-  background-color: #d46a1a;
+.selection-state span {
+  color: #607089;
+  font-size: 13px;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .filters {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 15px;
-  margin-bottom: 25px;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.search-box,
+.filter-select,
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid #d7deea;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fbfcfe;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.search-box {
+  flex: 1 1 320px;
+}
+
+.filter-select {
+  flex: 0 0 180px;
+}
+
+.search-box:focus,
+.filter-select:focus,
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #d97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.12);
+  background: #ffffff;
 }
 
 .state-message {
-  margin: 0 0 12px 0;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
   font-size: 14px;
-  color: #334155;
 }
 
 .state-message.error {
+  background: #fef2f2;
   color: #b91c1c;
 }
 
 .state-message.success {
+  background: #f0fdf4;
   color: #166534;
 }
 
-.btn-back {
-  background-color: #f0f0f0;
-  color: #333;
-  border: 1px solid #ddd;
+.table-container {
+  overflow: hidden;
 }
 
-.btn-back:hover {
-  background-color: #e57c2a;
-  color: #fff;
-  border-color: #e57c2a;
-}
-
-.search-box {
-  flex: 1;
-  max-width: 350px;
-  padding: 10px 15px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.filter-select {
-  padding: 10px 15px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-  background: white;
-}
-
-.search-box:focus,
-.filter-select:focus {
-  outline: none;
-  border-color: #e57c2a;
-  box-shadow: 0 0 0 3px rgba(229, 124, 42, 0.1);
-}
-
-.employees-table {
+.data-table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.employees-table thead {
-  background-color: #f9f9f9;
+.data-table thead {
+  background: #f8fafc;
 }
 
-.employees-table th {
-  padding: 15px;
+.data-table th,
+.data-table td {
+  padding: 14px 16px;
   text-align: left;
-  font-weight: 600;
-  color: #666;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.data-table th {
+  color: #516072;
   font-size: 12px;
+  font-weight: 700;
   text-transform: uppercase;
-  border-bottom: 2px solid #e0e0e0;
+  letter-spacing: 0.04em;
 }
 
-.employees-table td {
-  padding: 15px;
-  border-bottom: 1px solid #e0e0e0;
+.data-table tbody tr {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 
-.employees-table tbody tr:hover {
-  background-color: #f9f9f9;
+.data-table tbody tr:hover {
+  background: #fafcff;
+}
+
+.selected-row {
+  background: #fff7ed !important;
+}
+
+.select-column {
+  width: 52px;
+  text-align: center;
+}
+
+.select-column input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.name-cell {
+  font-weight: 600;
+  color: #102746;
+}
+
+.role-badge,
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.role-badge.admin { background: #eef2ff; color: #4338ca; }
+.role-badge.sales { background: #eff6ff; color: #1d4ed8; }
+.role-badge.delivery { background: #fff7ed; color: #c2410c; }
+.role-badge.inventory { background: #ecfeff; color: #0f766e; }
+.role-badge.purchasing { background: #fdf2f8; color: #be185d; }
+
+.status-badge.active { background: #ecfdf3; color: #166534; }
+.status-badge.inactive { background: #fef2f2; color: #b91c1c; }
+
+.account-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.account-badge.active   { background: #ecfdf3; color: #166534; }
+.account-badge.inactive { background: #fef2f2; color: #b91c1c; }
+.account-badge.none     { background: #f1f5f9; color: #64748b; }
+
+.account-section {
+  padding: 4px 0 8px;
+}
+
+.account-info {
+  color: #64748b;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.account-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.account-detail-label {
+  font-weight: 600;
+  color: #334155;
+  font-size: 14px;
+  min-width: 90px;
+}
+
+.account-detail-value {
+  color: #102746;
+  font-size: 14px;
+}
+
+.no-data {
+  text-align: center;
+  color: #64748b;
+  padding: 40px 16px;
 }
 
 .pagination {
@@ -500,241 +775,154 @@ onMounted(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 12px;
+  padding: 14px 18px;
 }
 
 .page-info {
   font-size: 13px;
-  color: #4b5563;
+  color: #64748b;
 }
 
-.name {
-  font-weight: 600;
-  color: #0a1d37;
-}
-
-.role-badge {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.role-badge.admin {
-  background-color: #f3e5f5;
-  color: #7b1fa2;
-}
-
-.role-badge.manager {
-  background-color: #e3f2fd;
-  color: #1976d2;
-}
-
-.role-badge.staff {
-  background-color: #e8f5e9;
-  color: #388e3c;
-}
-
-.status-badge {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.status-badge.active {
-  background-color: #e8f5e9;
-  color: #388e3c;
-}
-
-.status-badge.inactive {
-  background-color: #ffebee;
-  color: #d32f2f;
-}
-
-.actions {
-  display: flex;
-  gap: 6px;
-}
-
-.btn-small {
-  padding: 6px 10px;
-  border: 1px solid #ddd;
-  background: white;
-  border-radius: 4px;
+.btn {
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
   cursor: pointer;
-  font-size: 12px;
   font-weight: 600;
-  transition: all 0.3s;
+  font-size: 14px;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
-.btn-small:hover {
-  background-color: #e57c2a;
-  color: white;
-  border-color: #e57c2a;
+.btn-primary {
+  background: #d97706;
+  color: #ffffff;
 }
 
-.btn-small.active {
-  background-color: #ff9800;
-  color: white;
+.btn-primary:hover:not(:disabled) {
+  background: #b45309;
 }
 
-.btn-small.inactive {
-  background-color: #f44336;
-  color: white;
+.btn-secondary {
+  background: #ffffff;
+  color: #1f2937;
+  border-color: #d7deea;
 }
 
-/* Modal Styles */
+.btn-secondary:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.btn-ghost {
+  background: #f8fafc;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  padding: 16px;
 }
 
 .modal-content {
-  background: white;
-  border-radius: 8px;
-  max-width: 500px;
-  width: 90%;
+  background: #ffffff;
+  border-radius: 16px;
+  width: min(560px, 100%);
   max-height: 90vh;
   overflow-y: auto;
+  padding: 24px;
 }
 
-.modal-content.modal-large {
-  max-width: 700px;
+.small-modal {
+  width: min(420px, 100%);
 }
 
 .modal-header {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  background: white;
-  padding: 20px;
-  border-bottom: 1px solid #e0e0e0;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #edf2f7;
 }
 
 .modal-header h2 {
   margin: 0;
-  color: #0a1d37;
-  font-size: 18px;
+  color: #102746;
+  font-size: 20px;
 }
 
-.close-btn {
+.btn-close {
   background: none;
   border: none;
   font-size: 24px;
-  color: #999;
+  color: #64748b;
   cursor: pointer;
-  transition: color 0.3s;
 }
 
-.close-btn:hover {
-  color: #333;
-}
-
-.modal-body {
-  padding: 20px;
-}
-
-.employee-form {
-  padding: 20px;
-}
-
-.form-group {
-  margin-bottom: 15px;
+.modal-form .form-group {
+  margin-bottom: 16px;
 }
 
 .form-group label {
   display: block;
   margin-bottom: 6px;
   font-weight: 600;
-  color: #333;
+  color: #334155;
   font-size: 14px;
 }
 
-.form-group input[type="text"],
-.form-group input[type="email"],
-.form-group input[type="password"],
-.form-group select {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-  font-family: inherit;
+.inline-check label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.form-group input[type="text"]:focus,
-.form-group input[type="email"]:focus,
-.form-group input[type="password"]:focus,
-.form-group select:focus {
-  outline: none;
-  border-color: #e57c2a;
-  box-shadow: 0 0 0 3px rgba(229, 124, 42, 0.1);
+.warning {
+  color: #b91c1c;
+  font-size: 13px;
+  margin-top: 6px;
 }
 
-.form-group input[type="checkbox"] {
-  margin-right: 8px;
-  cursor: pointer;
-}
-
-.logs-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.logs-table th {
-  padding: 12px;
-  text-align: left;
-  font-weight: 600;
-  color: #666;
-  font-size: 12px;
-  text-transform: uppercase;
-  border-bottom: 2px solid #e0e0e0;
-}
-
-.logs-table td {
-  padding: 12px;
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.modal-footer {
-  padding: 20px;
-  border-top: 1px solid #e0e0e0;
+.modal-actions {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid #edf2f7;
 }
 
-.btn-secondary {
-  background-color: #f0f0f0;
-  color: #333;
-}
+@media (max-width: 900px) {
+  .actions-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
 
-.btn-secondary:hover {
-  background-color: #e0e0e0;
+  .toolbar-actions {
+    width: 100%;
+  }
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>

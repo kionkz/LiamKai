@@ -1,16 +1,16 @@
 <template>
   <div class="customers-container">
-    <div class="header-section">
-      <div class="header-left">
-        <h1>Customer Management</h1>
-      </div>
-      <button @click="showNewCustomerForm = true" class="btn btn-primary">+ New Customer</button>
-    </div>
-
     <div class="actions-bar">
-      <button @click="viewSelectedCustomer" class="btn btn-secondary">View</button>
-      <button @click="openEditSelectedCustomer" class="btn btn-secondary">Edit</button>
-      <button @click="openDeleteSelectedCustomer" class="btn btn-danger">Delete</button>
+      <div class="selection-state">
+        <strong>{{ selectedCustomer ? selectedCustomer.name : 'No customer selected' }}</strong>
+        <span>{{ selectedCustomer ? 'Customer actions are enabled.' : 'Select a row to enable customer actions.' }}</span>
+      </div>
+      <div class="toolbar-actions">
+        <button @click="showNewCustomerForm = true" class="btn btn-primary">New Customer</button>
+        <button @click="viewSelectedCustomer" class="btn btn-secondary" :disabled="!selectedCustomer">View</button>
+        <button @click="openEditSelectedCustomer" class="btn btn-secondary" :disabled="!selectedCustomer">Edit</button>
+        <button @click="openDeleteSelectedCustomer" class="btn btn-danger" :disabled="!selectedCustomer">Delete</button>
+      </div>
     </div>
 
     <div class="search-bar">
@@ -40,17 +40,18 @@
       <table class="data-table">
         <thead>
           <tr>
+            <th class="select-column"></th>
             <th>Name</th>
             <th>Email</th>
             <th>Phone</th>
             <th>Type</th>
             <th>Address</th>
-            <th>Credit Limit</th>
+            <th>Credit Status</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="customers.length === 0">
-            <td colspan="6" class="no-data">No customers found. Add your first customer!</td>
+            <td colspan="7" class="no-data">No customers found. Add your first customer!</td>
           </tr>
           <tr
             v-for="customer in customers"
@@ -58,12 +59,26 @@
             @click="selectCustomer(customer)"
             :class="{ 'selected-row': selectedCustomerId === customer.id }"
           >
+            <td class="select-column" @click.stop>
+              <input type="checkbox" :checked="selectedCustomerId === customer.id" @change="selectCustomer(customer)" />
+            </td>
             <td>{{ customer.name }}</td>
             <td>{{ customer.email || '-' }}</td>
             <td>{{ customer.phone }}</td>
             <td><span class="badge" :class="customer.type">{{ customer.type === 'retail' ? 'Retail' : 'Wholesale' }}</span></td>
             <td>{{ customer.address }}</td>
-            <td>{{ customer.credit_limit || '0' }}</td>
+            <td>
+              <template v-if="customer.type === 'wholesale'">
+                <div class="credit-cell">
+                  <span class="credit-used-label">Unpaid: ₱{{ Number(customer.credit_used || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) }}</span>
+                  <span v-if="customer.credit_limit_exceeded" class="badge credit-exceeded">Blocked</span>
+                  <span v-else class="badge credit-ok">OK</span>
+                </div>
+              </template>
+              <template v-else>
+                <span class="text-muted-sm">—</span>
+              </template>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -116,11 +131,8 @@
           </div>
 
           <div class="form-group">
-            <label for="credit_limit">Credit Limit</label>
-            <input v-model.number="customerForm.credit_limit" type="number" id="credit_limit" placeholder="0" min="0" step="100"
-              :disabled="customerForm.type === 'retail'" :max="customerForm.type === 'wholesale' ? 15000 : 0" />
-            <p v-if="customerForm.type === 'retail'" style="font-size:12px;color:#6c757d;margin-top:6px;">Retail customers cannot have a credit limit.</p>
-            <p v-else style="font-size:12px;color:#6c757d;margin-top:6px;">Wholesale credit limit capped at ₱15,000.</p>
+            <p v-if="customerForm.type === 'wholesale'" style="font-size:12px;color:#28a745;margin-top:4px;">A credit limit of ₱15,000 will be automatically assigned.</p>
+            <p v-else style="font-size:12px;color:#6c757d;margin-top:4px;">Retail customers do not have a credit limit.</p>
           </div>
 
           <div class="modal-actions">
@@ -176,7 +188,6 @@ const customerForm = ref({
   phone: '',
   address: '',
   type: 'retail',
-  credit_limit: 0
 });
 
 const normalizePhPhone = (value) => {
@@ -196,40 +207,25 @@ const selectedCustomer = computed(() => {
 });
 
 const selectCustomer = (customer) => {
-  selectedCustomerId.value = customer.id;
-};
-
-const requireSelectedCustomer = () => {
-  if (!selectedCustomer.value) {
-    alert('Please select a customer row first.');
-    return false;
-  }
-  return true;
+  selectedCustomerId.value = selectedCustomerId.value === customer.id ? null : customer.id;
 };
 
 const viewSelectedCustomer = () => {
-  if (!requireSelectedCustomer()) return;
+  if (!selectedCustomer.value) return;
   router.push(`/customers/${selectedCustomer.value.id}`);
 };
 
 const openEditSelectedCustomer = () => {
-  if (!requireSelectedCustomer()) return;
+  if (!selectedCustomer.value) return;
   editCustomer(selectedCustomer.value);
 };
 
 const openDeleteSelectedCustomer = () => {
-  if (!requireSelectedCustomer()) return;
+  if (!selectedCustomer.value) return;
   deleteCustomer(selectedCustomer.value);
 };
 
-// When type changes, ensure credit limit obeys business rules
-watch(() => customerForm.value.type, (newType) => {
-  if (newType === 'retail') {
-    customerForm.value.credit_limit = 0;
-  } else if (newType === 'wholesale') {
-    if (customerForm.value.credit_limit > 15000) customerForm.value.credit_limit = 15000;
-  }
-});
+
 
 const fetchCustomers = async (page = 1) => {
   loading.value = true;
@@ -276,13 +272,7 @@ const saveCustomer = async () => {
   try {
     normalizePhoneField();
 
-    // Prepare payload according to rules: do not send credit_limit for retail; clamp wholesale
     const payload = { ...customerForm.value };
-    if (payload.type === 'retail') {
-      delete payload.credit_limit;
-    } else {
-      if (payload.credit_limit > 15000) payload.credit_limit = 15000;
-    }
 
     let response;
     if (editingCustomer.value) {
@@ -353,7 +343,6 @@ const closeModal = () => {
     phone: '',
     address: '',
     type: 'retail',
-    credit_limit: 0
   };
 };
 
@@ -381,14 +370,45 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
+.page-summary {
+  margin: 8px 0 0;
+  color: #607089;
+  font-size: 14px;
+}
+
 .actions-bar {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 16px;
   padding: 14px;
   background: #ffffff;
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.selection-state {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.selection-state strong {
+  color: #102746;
+  font-size: 15px;
+}
+
+.selection-state span {
+  color: #607089;
+  font-size: 13px;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .search-bar {
@@ -568,6 +588,17 @@ onMounted(() => {
   outline: 2px solid #7aa2ff;
 }
 
+.select-column {
+  width: 52px;
+  text-align: center;
+}
+
+.select-column input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
 .data-table th,
 .data-table td {
   padding: 16px 20px;
@@ -614,6 +645,36 @@ onMounted(() => {
 .badge.wholesale {
   background-color: #f3e5f5;
   color: #7b1fa2;
+}
+
+.credit-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.credit-used-label {
+  font-size: 12px;
+  color: #444;
+}
+
+.badge.credit-exceeded {
+  background-color: #fdecea;
+  color: #c62828;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.badge.credit-ok {
+  background-color: #e8f5e9;
+  color: #2e7d32;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.text-muted-sm {
+  color: #aaa;
+  font-size: 13px;
 }
 
 .modal-overlay {

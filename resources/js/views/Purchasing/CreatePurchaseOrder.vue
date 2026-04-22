@@ -5,10 +5,6 @@
         <button @click="goBack" class="btn-back">
           ← Back to Purchasing
         </button>
-        <div class="header-content">
-          <h1>Create Purchase Order</h1>
-          <p class="subtitle">Fill in the details below to create a new PO</p>
-        </div>
       </div>
 
       <form @submit.prevent="submitPO" class="po-form">
@@ -26,7 +22,7 @@
             <div class="form-row">
               <div class="form-group">
                 <label>Expected Pickup Date *</label>
-                <input v-model="formData.expected_delivery_date" type="date" required class="form-input" />
+                <input v-model="formData.expected_delivery_date" type="date" required class="form-input" :min="today" />
                 <p class="field-help">When you'll pick up the order from the supplier</p>
               </div>
             </div>
@@ -69,13 +65,13 @@
                     <SearchableSelect v-model="item.product_id" :options="purchaseProductOptions" placeholder="Select Product" />
                   </td>
                   <td>
-                    <input v-model.number="item.quantity" type="number" min="0.01" step="0.01" required class="form-input number" placeholder="0.00 kg" />
+                    <input v-model="item.quantity" type="number" min="0.01" step="0.01" required class="form-input number" placeholder="0.00 kg" @input="item.quantity = Math.max(0, parseFloat(item.quantity) || 0)" />
                   </td>
                   <td>
-                    <input v-model.number="item.unit_cost" type="number" min="0" step="0.01" placeholder="₱0.00" class="form-input number" />
+                    <input v-model="item.unit_cost" type="number" min="0" step="0.01" placeholder="₱0.00" class="form-input number" @input="item.unit_cost = Math.max(0, parseFloat(item.unit_cost) || 0)" />
                   </td>
                   <td class="subtotal-cell">
-                    <div class="subtotal">₱{{ (item.quantity * item.unit_cost).toFixed(2) }}</div>
+                    <div class="subtotal">₱{{ ((parseFloat(item.quantity) || 0) * (parseFloat(item.unit_cost) || 0)).toFixed(2) }}</div>
                   </td>
                   <td>
                     <button type="button" @click="removeProduct(idx)" class="btn-remove">
@@ -124,7 +120,7 @@
         <div class="form-actions-sticky">
           <button type="button" @click="goBack" class="btn btn-secondary">Cancel</button>
           <button type="submit" class="btn btn-primary btn-large" :disabled="loading">
-            {{ loading ? 'Creating...' : 'Create Purchase Order' }}
+            {{ loading ? (isEditMode ? 'Updating...' : 'Creating...') : (isEditMode ? 'Update Purchase Order' : 'Create Purchase Order') }}
           </button>
         </div>
       </form>
@@ -144,11 +140,17 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
-import axios from 'axios';
+import { useRouter, useRoute } from 'vue-router';
+import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
 
 const router = useRouter();
+const route = useRoute();
+
+const today = new Date().toISOString().split('T')[0];
+
+const isEditMode = computed(() => !!route.params.id);
+const editId = computed(() => route.params.id ? parseInt(route.params.id) : null);
 
 // State
 const loading = ref(false);
@@ -178,7 +180,7 @@ const purchaseProductOptions = computed(() => products.value.map((product) => ({
 // Computed Properties
 const subtotal = computed(() => {
   return formData.value.items.reduce((sum, item) => {
-    return sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost) || 0);
+    return sum + (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_cost) || 0);
   }, 0);
 });
 
@@ -189,7 +191,7 @@ const goBack = () => {
 
 const fetchSuppliers = async () => {
   try {
-    const response = await axios.get('/api/suppliers');
+    const response = await api.get('/suppliers');
     if (response.data.success) {
       suppliers.value = response.data.data;
     }
@@ -201,13 +203,40 @@ const fetchSuppliers = async () => {
 
 const fetchProducts = async () => {
   try {
-    const response = await axios.get('/api/products');
+    const response = await api.get('/products');
     if (response.data.success) {
       products.value = response.data.data;
     }
   } catch (error) {
     console.error('Error fetching products:', error);
     errorMessage.value = 'Failed to load products';
+  }
+};
+
+const fetchPO = async () => {
+  try {
+    const response = await api.get(`/purchase-orders/${editId.value}`);
+    if (response.data.success) {
+      const po = response.data.data;
+      // Guard: received POs cannot be edited
+      if (po.status === 'received') {
+        router.replace('/purchasing');
+        return;
+      }
+      formData.value.supplier_id = po.supplier_id;
+      formData.value.expected_delivery_date = po.expected_delivery_date
+        ? po.expected_delivery_date.split('T')[0]
+        : '';
+      formData.value.notes = po.notes || '';
+      formData.value.items = (po.purchase_order_items || []).map(item => ({
+        product_id: item.product_id,
+        quantity: parseFloat(item.quantity),
+        unit_cost: parseFloat(item.purchase_price),
+      }));
+    }
+  } catch (error) {
+    console.error('Error fetching purchase order:', error);
+    errorMessage.value = 'Failed to load purchase order';
   }
 };
 
@@ -262,26 +291,33 @@ const submitPO = async () => {
       }))
     };
 
-    const response = await axios.post('/api/purchase-orders', payload);
+    const response = isEditMode.value
+      ? await api.put(`/purchase-orders/${editId.value}`, payload)
+      : await api.post('/purchase-orders', payload);
     
     if (response.data.success) {
-      successMessage.value = 'Purchase order created successfully!';
+      successMessage.value = isEditMode.value
+        ? 'Purchase order updated successfully!'
+        : 'Purchase order created successfully!';
       setTimeout(() => {
         router.push('/purchasing');
       }, 1500);
     }
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Failed to create purchase order';
-    console.error('Error creating PO:', error);
+    errorMessage.value = error.response?.data?.message ||
+      (isEditMode.value ? 'Failed to update purchase order' : 'Failed to create purchase order');
+    console.error('Error saving PO:', error);
   } finally {
     loading.value = false;
   }
 };
 
 // Lifecycle
-onMounted(() => {
-  fetchSuppliers();
-  fetchProducts();
+onMounted(async () => {
+  await Promise.all([fetchSuppliers(), fetchProducts()]);
+  if (isEditMode.value) {
+    await fetchPO();
+  }
 });
 </script>
 

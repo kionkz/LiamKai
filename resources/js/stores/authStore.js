@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../api';
+import { canAccess, defaultRouteForRole } from '../config/permissions';
 
 export const useAuthStore = defineStore('auth', () => {
   const savedUser = localStorage.getItem('user');
@@ -8,17 +9,18 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('authToken'));
 
   const isAuthenticated = computed(() => !!token.value && !!user.value);
+  const userRole = computed(() => user.value?.role || null);
+  const isAdmin = computed(() => user.value?.role === 'admin');
 
-  const login = async (email, password) => {
+  /** Check whether the current user's role can access a given module. */
+  const hasPermission = (module) => canAccess(userRole.value, module);
+
+  /** The route the user should land on after login. */
+  const homeRoute = computed(() => defaultRouteForRole(userRole.value));
+
+  const login = async (username, password) => {
     try {
-      console.log('authStore: Attempting login for', email);
-      
-      const response = await api.post('/login', {
-        email: email,
-        password: password
-      });
-      
-      console.log('authStore: Login response received:', response.data);
+      const response = await api.post('/login', { username, password });
 
       token.value = response.data.token;
       user.value = response.data.user;
@@ -27,17 +29,26 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem('user', JSON.stringify(user.value));
 
       api.defaults.headers.common['Authorization'] = `Bearer ${token.value}`;
-      
-      console.log('authStore: Login successful, token and user stored');
 
-      return { success: true };
+      return {
+        success: true,
+        mustChangePassword: !!response.data.user?.must_change_password,
+      };
     } catch (error) {
-      console.error('authStore: Login error:', error.response?.data || error.message);
       return {
         success: false,
         message: error.response?.data?.message || 'Login failed'
       };
     }
+  };
+
+  /** Called after a forced password change to refresh stored user + token. */
+  const applyPasswordChange = (updatedUser, newToken) => {
+    user.value = updatedUser;
+    token.value = newToken;
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+    localStorage.setItem('authToken', newToken);
+    api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
   };
 
   const logout = () => {
@@ -63,8 +74,13 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     token,
     isAuthenticated,
+    userRole,
+    isAdmin,
+    hasPermission,
+    homeRoute,
     login,
     logout,
-    checkAuth
+    checkAuth,
+    applyPasswordChange,
   };
 });

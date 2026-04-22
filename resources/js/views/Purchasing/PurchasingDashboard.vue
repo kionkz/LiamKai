@@ -1,10 +1,6 @@
 <template>
   <div class="purchasing-container">
-    <!-- Header with Back Button and Actions -->
     <div class="header-section">
-      <div class="header-left">
-        <h1>Purchase Orders Management</h1>
-      </div>
       <div class="header-actions">
         <button @click="showAddSupplierModal = true" class="btn btn-secondary">
           + Add Supplier
@@ -77,6 +73,33 @@
           class="filter-input"
           placeholder="Filter by supplier name..."
         />
+        <select v-model="poCategoryFilter" class="filter-input" data-searchable="off">
+          <option value="">All Categories</option>
+          <option v-for="cat in categories" :key="cat.id" :value="String(cat.id)">{{ cat.name }}</option>
+        </select>
+      </div>
+      <div class="selection-toolbar" v-if="activeTab === 'orders'">
+        <div class="selection-summary">
+          <strong>{{ selectedPurchaseOrder ? `PO #${selectedPurchaseOrder.id}` : 'No purchase order selected' }}</strong>
+          <span>{{ selectedPurchaseOrder ? 'Purchase order actions are enabled.' : 'Select a purchase order row to enable actions.' }}</span>
+        </div>
+        <div class="selection-actions">
+          <button @click="viewPO()" class="btn btn-secondary" :disabled="!selectedPurchaseOrder">View</button>
+          <button @click="editPO()" class="btn btn-secondary" :disabled="!selectedPurchaseOrder || selectedPurchaseOrder.status === 'received'">Edit</button>
+          <button
+            @click="receivePO()"
+            class="btn btn-primary"
+            :disabled="!selectedPurchaseOrder || selectedPurchaseOrder.status === 'received' || selectedPurchaseOrder.status === 'cancelled'"
+          >
+            Receive
+          </button>
+          <select v-model="selectedPOStatus" class="status-select" data-searchable="off" :disabled="!selectedPurchaseOrder || selectedPurchaseOrder?.status === 'received'">
+            <option value="pending">Pending</option>
+            <option value="received">Received</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <button @click="updateSelectedPOStatus" class="btn btn-secondary" :disabled="!selectedPurchaseOrder || !selectedPOStatus || selectedPurchaseOrder?.status === 'received'">Apply Status</button>
+        </div>
       </div>
       <div v-if="loading" class="loading-message">Loading purchase orders...</div>
       <div v-else-if="filteredPurchaseOrders.length === 0" class="empty-message">
@@ -85,20 +108,36 @@
       <table v-else class="data-table">
         <thead>
           <tr>
+            <th class="select-column"></th>
             <th>PO #</th>
             <th>Supplier</th>
-            <th>Items</th>
+            <th>Products</th>
             <th>Total Amount</th>
             <th>Status</th>
             <th>Expected Date</th>
-            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="po in filteredPurchaseOrders" :key="po.id">
+          <tr v-for="po in paginatedPurchaseOrders" :key="po.id" @click="selectPurchaseOrder(po)" :class="{ 'selected-row': selectedPOId === po.id }">
+            <td class="select-column" @click.stop>
+              <input type="checkbox" :checked="selectedPOId === po.id" @change="selectPurchaseOrder(po)" />
+            </td>
             <td class="po-number">#{{ po.id }}</td>
             <td>{{ po.supplier?.name || 'N/A' }}</td>
-              <td class="center">{{ po.purchase_order_items?.length || 0 }}</td>
+              <td>
+                <div class="product-tags">
+                  <span
+                    v-for="item in (po.purchase_order_items || []).slice(0, 2)"
+                    :key="item.id"
+                    class="product-tag"
+                  >{{ item.product?.name || 'Unknown' }}</span>
+                  <span
+                    v-if="(po.purchase_order_items || []).length > 2"
+                    class="more-tag"
+                  >+{{ (po.purchase_order_items || []).length - 2 }} more</span>
+                  <span v-if="!(po.purchase_order_items || []).length" class="more-tag">—</span>
+                </div>
+              </td>
             <td class="amount">₱{{ parseFloat(po.total_amount).toFixed(2) }}</td>
             <td>
               <span class="status" :class="po.status">
@@ -106,52 +145,73 @@
               </span>
             </td>
             <td>{{ formatDate(po.expected_delivery_date) }}</td>
-            <td class="actions-cell">
-              <button @click="viewPO(po)" class="btn-small">View</button>
-              <button @click="editPO(po)" class="btn-small">Edit</button>
-              <select v-model="po.status" class="status-select" data-searchable="off" @change="updatePOStatus(po)">
-                <option value="pending">Pending</option>
-                <option value="received">Received</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </td>
           </tr>
         </tbody>
       </table>
+      <div v-if="filteredPurchaseOrders.length > PAGE_SIZE" class="pagination">
+        <button class="page-btn" :disabled="poPage === 1" @click="poPage--">&#8592; Prev</button>
+        <span class="page-info">Page {{ poPage }} of {{ poTotalPages }}</span>
+        <button class="page-btn" :disabled="poPage === poTotalPages" @click="poPage++">Next &#8594;</button>
+      </div>
     </div>
-
-    <!-- Suppliers Tab -->
     <div v-if="activeTab === 'suppliers'" class="tab-content">
+      <div class="selection-toolbar">
+        <div class="selection-summary">
+          <strong>{{ selectedSupplier ? selectedSupplier.name : 'No supplier selected' }}</strong>
+          <span>{{ selectedSupplier ? 'Supplier actions are enabled.' : 'Select a supplier row to enable actions.' }}</span>
+        </div>
+        <div class="selection-actions">
+          <button @click="editSupplier()" class="btn btn-secondary" :disabled="!selectedSupplier">Edit</button>
+          <button @click="deleteSupplier()" class="btn btn-danger" :disabled="!selectedSupplier">Delete</button>
+        </div>
+      </div>
+      <div class="filter-bar">
+        <input
+          v-model="supplierSearch"
+          type="text"
+          class="filter-input"
+          placeholder="Search by name, contact, email or phone..."
+          @keyup.enter="runSupplierSearch"
+        />
+        <button @click="runSupplierSearch" class="btn btn-secondary">Search</button>
+      </div>
       <div v-if="suppliers.length === 0" class="empty-message">
         No suppliers yet. <button @click="showAddSupplierModal = true" class="link-button">Add one</button>
+      </div>
+      <div v-else-if="filteredSuppliers.length === 0" class="empty-message">
+        No suppliers match your search.
       </div>
       <table v-else class="data-table">
         <thead>
           <tr>
+            <th class="select-column"></th>
             <th>Name</th>
             <th>Contact Person</th>
             <th>Email</th>
             <th>Phone</th>
             <th>Address</th>
             <th>Active Orders</th>
-            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="supplier in suppliers" :key="supplier.id">
+          <tr v-for="supplier in paginatedSuppliers" :key="supplier.id" @click="selectSupplier(supplier)" :class="{ 'selected-row': selectedSupplierId === supplier.id }">
+            <td class="select-column" @click.stop>
+              <input type="checkbox" :checked="selectedSupplierId === supplier.id" @change="selectSupplier(supplier)" />
+            </td>
             <td>{{ supplier.name }}</td>
             <td>{{ supplier.contact_person }}</td>
             <td>{{ supplier.email }}</td>
             <td>{{ supplier.phone }}</td>
             <td>{{ supplier.address }}</td>
             <td class="center">{{ getSupplierOrderCount(supplier.id) }}</td>
-            <td class="actions-cell">
-              <button @click="editSupplier(supplier)" class="btn-small">Edit</button>
-              <button @click="deleteSupplier(supplier.id)" class="btn-small btn-danger">Delete</button>
-            </td>
           </tr>
         </tbody>
       </table>
+      <div v-if="filteredSuppliers.length > PAGE_SIZE" class="pagination">
+        <button class="page-btn" :disabled="supplierPage === 1" @click="supplierPage--">&#8592; Prev</button>
+        <span class="page-info">Page {{ supplierPage }} of {{ supplierTotalPages }}</span>
+        <button class="page-btn" :disabled="supplierPage === supplierTotalPages" @click="supplierPage++">Next &#8594;</button>
+      </div>
     </div>
 
     <!-- Add/Edit Supplier Modal -->
@@ -240,8 +300,8 @@
                               <tr v-for="item in viewingPO.purchase_order_items" :key="item.id">
                 <td>{{ item.product?.name || 'N/A' }}</td>
                 <td class="center">{{ item.quantity }}</td>
-                <td class="amount">₱{{ parseFloat(item.unit_cost).toFixed(2) }}</td>
-                <td class="amount">₱{{ (item.quantity * item.unit_cost).toFixed(2) }}</td>
+                <td class="amount">₱{{ parseFloat(item.purchase_price ?? item.unit_cost ?? 0).toFixed(2) }}</td>
+                <td class="amount">₱{{ ((parseFloat(item.quantity) || 0) * (parseFloat(item.purchase_price ?? item.unit_cost ?? 0))).toFixed(2) }}</td>
               </tr>
             </tbody>
           </table>
@@ -256,7 +316,7 @@
     <div v-if="showWarningModal" class="modal-overlay" @click="showWarningModal = false">
       <div class="modal-content warning-modal" @click.stop>
         <div class="modal-header warning-header">
-          <h3>⚠️ {{ warningModalConfig.type === 'suppliers' ? 'No Suppliers Found' : 'No Products Found' }}</h3>
+          <h3>{{ warningModalConfig.type === 'suppliers' ? 'No Suppliers Found' : 'No Products Found' }}</h3>
           <button @click="showWarningModal = false" class="close-btn">×</button>
         </div>
         <div class="modal-body">
@@ -267,6 +327,29 @@
           <button @click="warningModalConfig.action" class="btn btn-primary">
             {{ warningModalConfig.actionText }} →
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cancel Reason Modal -->
+    <div v-if="showCancelModal" class="modal-overlay" @click="showCancelModal = false">
+      <div class="modal-content warning-modal" @click.stop>
+        <div class="modal-header warning-header">
+          <h3>Cancel Purchase Order</h3>
+          <button @click="showCancelModal = false" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="warning-message">Please provide a reason for cancelling this purchase order.</p>
+          <textarea
+            v-model="cancelReason"
+            rows="3"
+            class="cancel-reason-input"
+            placeholder="e.g. Supplier unavailable, order no longer needed..."
+          ></textarea>
+        </div>
+        <div class="modal-actions">
+          <button @click="showCancelModal = false" class="btn btn-secondary">Go Back</button>
+          <button @click="confirmCancel" class="btn btn-danger" :disabled="!cancelReason.trim()">Confirm Cancel</button>
         </div>
       </div>
     </div>
@@ -284,9 +367,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import axios from 'axios';
+import api from '../../api';
 
 const router = useRouter();
 
@@ -296,16 +379,28 @@ const loading = ref(false);
 const purchaseOrders = ref([]);
 const suppliers = ref([]);
 const products = ref([]);
+const categories = ref([]);
 const showAddSupplierModal = ref(false);
 const showViewModal = ref(false);
 const showWarningModal = ref(false);
 const warningModalConfig = ref({ type: '', message: '', actionText: '', action: null });
+const showCancelModal = ref(false);
+const cancelReason = ref('');
 const viewingPO = ref(null);
 const editingSupplier = ref(null);
 const successMessage = ref('');
 const errorMessage = ref('');
 const poStatusFilter = ref('');
 const poSupplierFilter = ref('');
+const poCategoryFilter = ref('');
+const supplierSearch = ref('');
+const supplierSearchQuery = ref('');
+const selectedPOId = ref(null);
+const selectedSupplierId = ref(null);
+const selectedPOStatus = ref('');
+const PAGE_SIZE = 10;
+const poPage = ref(1);
+const supplierPage = ref(1);
 
 const supplierForm = ref({
   name: '',
@@ -334,11 +429,57 @@ const filteredPurchaseOrders = computed(() => {
     const statusMatch = !poStatusFilter.value || po.status === poStatusFilter.value;
     const supplierName = (po.supplier?.name || '').toLowerCase();
     const supplierMatch = !poSupplierFilter.value || supplierName.includes(poSupplierFilter.value.toLowerCase());
-    return statusMatch && supplierMatch;
+    const categoryMatch = !poCategoryFilter.value || (po.purchase_order_items || []).some(
+      item => String(item.product?.category_id) === poCategoryFilter.value
+    );
+    return statusMatch && supplierMatch && categoryMatch;
   });
 });
 
+const selectedPurchaseOrder = computed(() => {
+  return purchaseOrders.value.find((po) => po.id === selectedPOId.value) || null;
+});
+
+const poTotalPages = computed(() => Math.max(1, Math.ceil(filteredPurchaseOrders.value.length / PAGE_SIZE)));
+
+const paginatedPurchaseOrders = computed(() => {
+  const start = (poPage.value - 1) * PAGE_SIZE;
+  return filteredPurchaseOrders.value.slice(start, start + PAGE_SIZE);
+});
+
+const filteredSuppliers = computed(() => {
+  const q = supplierSearchQuery.value.toLowerCase();
+  return suppliers.value.filter(s => {
+    return !q ||
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.contact_person || '').toLowerCase().includes(q) ||
+      (s.email || '').toLowerCase().includes(q) ||
+      (s.phone || '').toLowerCase().includes(q);
+  });
+});
+
+const supplierTotalPages = computed(() => Math.max(1, Math.ceil(filteredSuppliers.value.length / PAGE_SIZE)));
+
+const paginatedSuppliers = computed(() => {
+  const start = (supplierPage.value - 1) * PAGE_SIZE;
+  return filteredSuppliers.value.slice(start, start + PAGE_SIZE);
+});
+
+const selectedSupplier = computed(() => {
+  return suppliers.value.find((supplier) => supplier.id === selectedSupplierId.value) || null;
+});
+
+// Reset pages when filters change
+watch(filteredPurchaseOrders, () => { poPage.value = 1; });
+watch(filteredSuppliers, () => { supplierPage.value = 1; });
+watch(poCategoryFilter, () => { poPage.value = 1; });
+
 // Methods
+const runSupplierSearch = () => {
+  supplierSearchQuery.value = supplierSearch.value;
+  supplierPage.value = 1;
+};
+
 const goToCreatePO = () => {
   if (suppliers.value.length === 0) {
     warningModalConfig.value = {
@@ -372,9 +513,13 @@ const goToCreatePO = () => {
 const fetchPurchaseOrders = async () => {
   try {
     loading.value = true;
-    const response = await axios.get('/api/purchase-orders');
+    const response = await api.get('/purchase-orders');
     if (response.data.success) {
       purchaseOrders.value = response.data.data;
+      if (selectedPOId.value && !purchaseOrders.value.some((po) => po.id === selectedPOId.value)) {
+        selectedPOId.value = null;
+        selectedPOStatus.value = '';
+      }
     }
   } catch (error) {
     console.error('Error fetching purchase orders:', error);
@@ -386,9 +531,12 @@ const fetchPurchaseOrders = async () => {
 
 const fetchSuppliers = async () => {
   try {
-    const response = await axios.get('/api/suppliers');
+    const response = await api.get('/suppliers');
     if (response.data.success) {
       suppliers.value = response.data.data;
+      if (selectedSupplierId.value && !suppliers.value.some((supplier) => supplier.id === selectedSupplierId.value)) {
+        selectedSupplierId.value = null;
+      }
     }
   } catch (error) {
     console.error('Error fetching suppliers:', error);
@@ -397,7 +545,7 @@ const fetchSuppliers = async () => {
 
 const fetchProducts = async () => {
   try {
-    const response = await axios.get('/api/products');
+    const response = await api.get('/products');
     if (response.data.success) {
       products.value = response.data.data;
     }
@@ -406,20 +554,47 @@ const fetchProducts = async () => {
   }
 };
 
-const viewPO = (po) => {
+const fetchCategories = async () => {
+  try {
+    const response = await api.get('/categories');
+    if (response.data.success) {
+      categories.value = response.data.data;
+    }
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+  }
+};
+
+const selectPurchaseOrder = (po) => {
+  selectedPOId.value = selectedPOId.value === po.id ? null : po.id;
+  selectedPOStatus.value = selectedPOId.value ? po.status : '';
+};
+
+const selectSupplier = (supplier) => {
+  selectedSupplierId.value = selectedSupplierId.value === supplier.id ? null : supplier.id;
+};
+
+const viewPO = (po = selectedPurchaseOrder.value) => {
+  if (!po) return;
   viewingPO.value = po;
   showViewModal.value = true;
 };
 
-const editPO = (po) => {
+const editPO = (po = selectedPurchaseOrder.value) => {
+  if (!po) return;
   router.push(`/purchasing/edit/${po.id}`);
+};
+
+const receivePO = (po = selectedPurchaseOrder.value) => {
+  if (!po) return;
+  router.push(`/purchasing/receive/${po.id}`);
 };
 
 const deletePO = async (id) => {
   if (!confirm('Are you sure you want to delete this PO?')) return;
   
   try {
-    const response = await axios.delete(`/api/purchase-orders/${id}`);
+    const response = await api.delete(`/purchase-orders/${id}`);
     if (response.data.success) {
       purchaseOrders.value = purchaseOrders.value.filter(po => po.id !== id);
       successMessage.value = 'Purchase order deleted successfully';
@@ -431,18 +606,66 @@ const deletePO = async (id) => {
   }
 };
 
-const updatePOStatus = async (po) => {
+const updatePOStatus = async (po, nextStatus) => {
+  if (!po || !nextStatus) return;
+
+  if (po.status === 'received') {
+    errorMessage.value = 'Cannot change status of a received purchase order.';
+    setTimeout(() => errorMessage.value = '', 3000);
+    return;
+  }
+
+  if (nextStatus === 'received') {
+    receivePO(po);
+    return;
+  }
+
   try {
-    const response = await axios.put(`/api/purchase-orders/${po.id}`, {
-      status: po.status,
+    const response = await api.put(`/purchase-orders/${po.id}`, {
+      status: nextStatus,
       expected_delivery_date: po.expected_delivery_date
     });
     if (response.data.success) {
-      successMessage.value = `PO status updated to ${po.status}`;
+      po.status = nextStatus;
+      selectedPOStatus.value = nextStatus;
+      successMessage.value = `PO status updated to ${formatStatus(nextStatus)}`;
       setTimeout(() => successMessage.value = '', 3000);
     }
   } catch (error) {
     errorMessage.value = 'Failed to update status';
+    setTimeout(() => errorMessage.value = '', 3000);
+  }
+};
+
+const updateSelectedPOStatus = async () => {
+  if (!selectedPurchaseOrder.value || !selectedPOStatus.value) return;
+  if (selectedPOStatus.value === 'cancelled') {
+    cancelReason.value = '';
+    showCancelModal.value = true;
+    return;
+  }
+  await updatePOStatus(selectedPurchaseOrder.value, selectedPOStatus.value);
+};
+
+const confirmCancel = async () => {
+  if (!cancelReason.value.trim()) return;
+  const po = selectedPurchaseOrder.value;
+  showCancelModal.value = false;
+  try {
+    const response = await api.put(`/purchase-orders/${po.id}`, {
+      status: 'cancelled',
+      expected_delivery_date: po.expected_delivery_date,
+      notes: `Cancelled: ${cancelReason.value.trim()}`,
+    });
+    if (response.data.success) {
+      po.status = 'cancelled';
+      po.notes = `Cancelled: ${cancelReason.value.trim()}`;
+      selectedPOStatus.value = 'cancelled';
+      successMessage.value = 'Purchase order cancelled.';
+      setTimeout(() => successMessage.value = '', 3000);
+    }
+  } catch {
+    errorMessage.value = 'Failed to cancel purchase order.';
     setTimeout(() => errorMessage.value = '', 3000);
   }
 };
@@ -460,7 +683,8 @@ const openAddSupplierModal = () => {
   showAddSupplierModal.value = true;
 };
 
-const editSupplier = (supplier) => {
+const editSupplier = (supplier = selectedSupplier.value) => {
+  if (!supplier) return;
   editingSupplier.value = supplier;
   supplierForm.value = { ...supplier };
   showAddSupplierModal.value = true;
@@ -482,14 +706,14 @@ const closeSupplierModal = () => {
 const saveSupplier = async () => {
   try {
     if (editingSupplier.value) {
-      const response = await axios.put(`/api/suppliers/${editingSupplier.value.id}`, supplierForm.value);
+      const response = await api.put(`/suppliers/${editingSupplier.value.id}`, supplierForm.value);
       if (response.data.success) {
         successMessage.value = 'Supplier updated successfully';
         await fetchSuppliers();
         closeSupplierModal();
       }
     } else {
-      const response = await axios.post('/api/suppliers', supplierForm.value);
+      const response = await api.post('/suppliers', supplierForm.value);
       if (response.data.success) {
         successMessage.value = 'Supplier created successfully';
         await fetchSuppliers();
@@ -503,13 +727,16 @@ const saveSupplier = async () => {
   }
 };
 
-const deleteSupplier = async (id) => {
-  if (!confirm('Are you sure you want to delete this supplier?')) return;
+const deleteSupplier = async (id = selectedSupplier.value?.id) => {
+  if (!id || !confirm('Are you sure you want to delete this supplier?')) return;
   
   try {
-    const response = await axios.delete(`/api/suppliers/${id}`);
+    const response = await api.delete(`/suppliers/${id}`);
     if (response.data.success) {
       suppliers.value = suppliers.value.filter(s => s.id !== id);
+      if (selectedSupplierId.value === id) {
+        selectedSupplierId.value = null;
+      }
       successMessage.value = 'Supplier deleted successfully';
       setTimeout(() => successMessage.value = '', 3000);
     }
@@ -524,7 +751,10 @@ const getSupplierOrderCount = (supplierId) => {
 };
 
 const formatStatus = (status) => {
-  return status.charAt(0).toUpperCase() + status.slice(1);
+  return String(status || '')
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 };
 
 const formatDate = (date) => {
@@ -541,6 +771,7 @@ onMounted(() => {
   fetchPurchaseOrders();
   fetchSuppliers();
   fetchProducts();
+  fetchCategories();
 });
 </script>
 
@@ -662,7 +893,43 @@ onMounted(() => {
   animation: fadeIn 0.3s ease-in;
 }
 
-.order-filters {
+.selection-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  background: #fff;
+  border: 1px solid #e7ebf2;
+  border-radius: 10px;
+}
+
+.selection-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.selection-summary strong {
+  color: #102746;
+  font-size: 15px;
+}
+
+.selection-summary span {
+  color: #607089;
+  font-size: 13px;
+}
+
+.selection-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.order-filters,
+.filter-bar {
   display: flex;
   gap: 10px;
   margin-bottom: 14px;
@@ -743,6 +1010,12 @@ onMounted(() => {
   border-color: #ff5252;
 }
 
+.btn-primary-action {
+  background-color: #0a1d37;
+  color: white;
+  border-color: #0a1d37;
+}
+
 .link-button {
   background: none;
   border: none;
@@ -788,6 +1061,21 @@ onMounted(() => {
   background-color: #f9f9f9;
 }
 
+.selected-row {
+  background: #fff7ed;
+}
+
+.select-column {
+  width: 52px;
+  text-align: center;
+}
+
+.select-column input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
 .po-number {
   font-weight: 600;
   color: #0a1d37;
@@ -800,6 +1088,34 @@ onMounted(() => {
 
 .center {
   text-align: center;
+}
+
+.product-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.product-tag {
+  display: inline-block;
+  background: #eef3fb;
+  color: #1a3a5c;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.more-tag {
+  display: inline-block;
+  background: #f0f0f0;
+  color: #888;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
 }
 
 .actions-cell {
@@ -830,6 +1146,12 @@ onMounted(() => {
 .status-select:focus {
   border-color: #e57c2a;
   box-shadow: 0 0 0 3px rgba(229, 124, 42, 0.1);
+}
+
+.btn:disabled,
+.status-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* Status Badges */
@@ -874,6 +1196,45 @@ onMounted(() => {
   border-radius: 8px;
   color: #666;
   font-size: 16px;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.page-btn {
+  padding: 7px 18px;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 6px;
+  background: #fff;
+  color: #0a1d37;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: #e57c2a;
+  color: #fff;
+  border-color: #e57c2a;
+}
+
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-info {
+  font-size: 13px;
+  color: #607089;
+  min-width: 110px;
+  text-align: center;
 }
 
 .loading-message {
@@ -1189,7 +1550,44 @@ onMounted(() => {
   font-size: 16px;
   line-height: 1.6;
   color: #4a5568;
-  margin: 0;
+  margin: 0 0 12px 0;
+}
+
+.cancel-reason-input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.cancel-reason-input:focus {
+  outline: none;
+  border-color: #e57c2a;
+  box-shadow: 0 0 0 3px rgba(229, 124, 42, 0.1);
+}
+
+.btn-danger {
+  background-color: #dc2626;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #b91c1c;
+}
+
+.btn-danger:disabled {
+  background-color: #fca5a5;
+  cursor: not-allowed;
 }
 
 /* Animations */
@@ -1247,14 +1645,9 @@ onMounted(() => {
     padding: 10px;
   }
 
-  .actions-cell {
+  .selection-toolbar {
     flex-direction: column;
-    gap: 3px;
-  }
-
-  .btn-small {
-    width: 100%;
-    margin-right: 0;
+    align-items: stretch;
   }
 
   .modal {

@@ -16,10 +16,14 @@ class StockMovement extends Model
         'reference',
         'reference_id',
         'notes',
+        'expiration_date',
+        'expired',
     ];
 
     protected $casts = [
         'quantity' => 'decimal:2',
+        'expiration_date' => 'date',
+        'expired' => 'boolean',
     ];
 
     // Relationships

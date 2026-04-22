@@ -20,7 +20,12 @@
         </div>
         <div class="header-actions">
           <button @click="showEditForm = true" class="btn btn-primary">Edit Customer</button>
-          <button @click="createOrder" class="btn btn-secondary">Create Order</button>
+          <button
+            @click="createOrder"
+            class="btn btn-secondary"
+            :disabled="availableCredit <= 0 && Number(customer.credit_limit) > 0"
+            :title="availableCredit <= 0 && Number(customer.credit_limit) > 0 ? 'Customer has exceeded their credit limit' : ''"
+          >Create Order</button>
         </div>
       </div>
 
@@ -52,18 +57,38 @@
             <span class="badge" :class="customer.type">{{ customer.type === 'retail' ? 'Retail' : 'Wholesale' }}</span>
           </div>
           <div class="info-row">
-            <span class="label">Credit Limit:</span>
-            <span class="value">₱{{ customer.credit_limit?.toLocaleString() || '0' }}</span>
+            <span class="label">Status:</span>
+            <span class="value">{{ customer.status || 'active' }}</span>
           </div>
-          <div class="info-row">
-            <span class="label">Current Balance:</span>
-            <span class="value" style="color: #e57c2a;">₱{{ currentBalance.toLocaleString() }}</span>
-          </div>
-          <div class="info-row">
-            <span class="label">Available Credit:</span>
-            <span class="value" :style="{ color: availableCredit >= 0 ? '#388e3c' : '#dc3545' }">
-              ₱{{ availableCredit.toLocaleString() }}
+        </div>
+
+        <!-- Credit section: only for wholesale with a credit limit set -->
+        <div v-if="customer.type === 'wholesale' && Number(customer.credit_limit) > 0" class="credit-section">
+          <div class="credit-section-header">
+            <h4>Credit Account</h4>
+            <span class="credit-badge" :class="creditStatus">
+              {{ creditStatus === 'exceeded' ? 'Limit Exceeded' : creditStatus === 'warning' ? 'Near Limit' : 'Active' }}
             </span>
+          </div>
+          <div class="credit-bar-wrap">
+            <div class="credit-bar-fill" :style="{ width: Math.min(creditUsagePercent, 100) + '%', background: barColor }"></div>
+          </div>
+          <div class="credit-numbers">
+            <div>
+              <span class="credit-label">Used</span>
+              <span class="credit-val" :style="{ color: barColor }">{{ formatCurrency(currentBalance) }}</span>
+            </div>
+            <div>
+              <span class="credit-label">Available</span>
+              <span class="credit-val" :style="{ color: availableCredit > 0 ? '#388e3c' : '#dc3545' }">{{ formatCurrency(Math.max(availableCredit, 0)) }}</span>
+            </div>
+            <div>
+              <span class="credit-label">Limit</span>
+              <span class="credit-val">{{ formatCurrency(customer.credit_limit) }}</span>
+            </div>
+          </div>
+          <div v-if="availableCredit <= 0" class="credit-exceeded-alert">
+            ⚠ Credit limit exceeded — this customer cannot place new orders until their outstanding balance is reduced.
           </div>
         </div>
       </div>
@@ -84,6 +109,7 @@
             <tr>
               <th>Order #</th>
               <th>Date</th>
+              <th>Items Ordered</th>
               <th>Amount</th>
               <th>Status</th>
             </tr>
@@ -97,8 +123,18 @@
             >
               <td>#{{ order.id.toString().padStart(4, '0') }}</td>
               <td>{{ new Date(order.created_at).toLocaleDateString() }}</td>
+              <td>
+                <div v-if="order.order_items && order.order_items.length" class="order-items-list">
+                  <span
+                    v-for="item in order.order_items"
+                    :key="item.id"
+                    class="order-item-chip"
+                  >{{ item.product?.name || 'Unknown' }} × {{ Number(item.quantity).toLocaleString() }}</span>
+                </div>
+                <span v-else class="text-muted">—</span>
+              </td>
               <td>₱{{ order.total_amount?.toLocaleString() || '0' }}</td>
-              <td><span class="status" :class="order.payment_status || order.status">{{ order.payment_status || order.status || 'pending' }}</span></td>
+              <td><span class="status" :class="normalizePaymentStatus(order.payment_status || order.status)">{{ formatPaymentStatus(order.payment_status || order.status) }}</span></td>
             </tr>
           </tbody>
         </table>
@@ -112,11 +148,6 @@
           <button @click="showEditOrderModal = false" class="btn-close">×</button>
         </div>
         <form @submit.prevent="saveOrderEdit">
-          <div class="form-group">
-            <label>Order Type</label>
-            <SearchableSelect v-model="orderEditForm.order_type" :options="orderTypeOptions" placeholder="Select order type" />
-            <p class="field-note">{{ getOrderTypeRuleMessage(orderEditForm.order_type) }}</p>
-          </div>
           <div class="form-group">
             <label>Delivery Address</label>
             <input v-model="orderEditForm.delivery_address" type="text" />
@@ -173,11 +204,8 @@
           </div>
 
           <div class="form-group">
-            <label for="credit_limit">Credit Limit (₱)</label>
-            <input v-model.number="editForm.credit_limit" type="number" id="credit_limit" min="0" step="100"
-              :disabled="editForm.type === 'retail'" :max="editForm.type === 'wholesale' ? 15000 : 0" />
-            <p v-if="editForm.type === 'retail'" style="font-size:12px;color:#6c757d;margin-top:6px;">Retail customers cannot have a credit limit.</p>
-            <p v-else style="font-size:12px;color:#6c757d;margin-top:6px;">Wholesale credit limit capped at ₱15,000.</p>
+            <p v-if="editForm.type === 'wholesale'" style="font-size:12px;color:#28a745;margin-top:4px;">Credit limit is automatically set to ₱15,000 for wholesale customers.</p>
+            <p v-else style="font-size:12px;color:#6c757d;margin-top:4px;">Retail customers do not have a credit limit.</p>
           </div>
 
           <div class="modal-actions">
@@ -196,7 +224,7 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../api';
-import { findOrderTypeQuantityViolation, getApiErrorMessage, getOrderTypeRuleMessage } from '../../utils/orderValidation';
+import { getApiErrorMessage } from '../../utils/orderValidation';
 import SearchableSelect from '../../components/SearchableSelect.vue';
 
 const route = useRoute();
@@ -211,7 +239,6 @@ const showEditOrderModal = ref(false);
 const savingOrderEdit = ref(false);
 
 const orderEditForm = ref({
-  order_type: 'retail',
   delivery_address: '',
   delivery_date: '',
   notes: '',
@@ -223,7 +250,6 @@ const editForm = ref({
   phone: '',
   address: '',
   type: 'retail',
-  credit_limit: 0
 });
 
 const orderTypeOptions = [
@@ -243,25 +269,51 @@ const normalizePhoneField = () => {
   editForm.value.phone = normalizePhPhone(editForm.value.phone);
 };
 
-// Keep credit_limit in sync with type selection
-watch(() => editForm.value.type, (newType) => {
-  if (newType === 'retail') {
-    editForm.value.credit_limit = 0;
-  } else if (newType === 'wholesale') {
-    if (editForm.value.credit_limit > 15000) editForm.value.credit_limit = 15000;
-  }
-});
+
 
 const currentBalance = computed(() => {
   if (!customer.value?.orders) return 0;
   return customer.value.orders
-    .filter(order => order.status === 'pending' || order.status === 'paid')
-    .reduce((sum, order) => sum + (order.total_amount || 0), 0);
+    .filter((order) => ['unpaid', 'partially_paid'].includes(normalizePaymentStatus(order.payment_status || order.status)))
+    .reduce((sum, order) => sum + Number(order.outstanding_balance || 0), 0);
 });
+
+const normalizePaymentStatus = (status) => status === 'utang' ? 'partially_paid' : (status || 'pending');
+
+const formatPaymentStatus = (status) => {
+  const normalizedStatus = normalizePaymentStatus(status);
+  if (normalizedStatus === 'partially_paid') return 'Partially Paid';
+  if (normalizedStatus === 'unpaid') return 'Unpaid';
+  if (normalizedStatus === 'paid') return 'Paid';
+  return 'Pending';
+};
 
 const availableCredit = computed(() => {
   return (customer.value?.credit_limit || 0) - currentBalance.value;
 });
+
+const creditUsagePercent = computed(() => {
+  const limit = Number(customer.value?.credit_limit || 0);
+  if (limit === 0) return 0;
+  return (currentBalance.value / limit) * 100;
+});
+
+const creditStatus = computed(() => {
+  const pct = creditUsagePercent.value;
+  if (pct >= 100) return 'exceeded';
+  if (pct >= 80) return 'warning';
+  return 'active';
+});
+
+const barColor = computed(() => {
+  const pct = creditUsagePercent.value;
+  if (pct >= 100) return '#dc3545';
+  if (pct >= 80) return '#e57c2a';
+  return '#28a745';
+});
+
+const formatCurrency = (val) =>
+  '₱' + Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const selectedOrder = computed(() => {
   return customer.value?.orders?.find((order) => order.id === selectedOrderId.value) || null;
@@ -288,7 +340,6 @@ const openEditOrderModal = () => {
   if (!requireSelectedOrder()) return;
 
   orderEditForm.value = {
-    order_type: selectedOrder.value.order_type || selectedOrder.value.type || 'retail',
     delivery_address: selectedOrder.value.delivery_address || '',
     delivery_date: selectedOrder.value.delivery_date || '',
     notes: selectedOrder.value.notes || '',
@@ -299,12 +350,6 @@ const openEditOrderModal = () => {
 
 const saveOrderEdit = async () => {
   if (!selectedOrder.value) return;
-
-  const quantityViolation = findOrderTypeQuantityViolation(selectedOrder.value.order_items || selectedOrder.value.items || [], orderEditForm.value.order_type);
-  if (quantityViolation) {
-    alert(quantityViolation.message);
-    return;
-  }
 
   savingOrderEdit.value = true;
   try {
@@ -348,8 +393,6 @@ const updateCustomer = async () => {
     normalizePhoneField();
 
     const payload = { ...editForm.value };
-    if (payload.type === 'retail') delete payload.credit_limit;
-    else if (payload.credit_limit > 15000) payload.credit_limit = 15000;
 
     const response = await api.put(`/customers/${customer.value.id}`, payload);
     if (response.data.success) {
@@ -382,7 +425,6 @@ const closeModal = () => {
       phone: customer.value.phone || '',
       address: customer.value.address || '',
       type: customer.value.type || 'retail',
-      credit_limit: customer.value.credit_limit || 0
     };
   }
 };
@@ -430,6 +472,91 @@ onMounted(() => {
   margin: 6px 0 0;
   font-size: 12px;
   color: #6c757d;
+}
+
+/* Credit section */
+.credit-section {
+  background: #f8f9fa;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 24px;
+}
+
+.credit-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.credit-section-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0a1d37;
+}
+
+.credit-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.credit-badge.active { background: #d4edda; color: #155724; }
+.credit-badge.warning { background: #fff3cd; color: #856404; }
+.credit-badge.exceeded { background: #f8d7da; color: #721c24; }
+
+.credit-bar-wrap {
+  background: #dee2e6;
+  border-radius: 20px;
+  height: 10px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.credit-bar-fill {
+  height: 100%;
+  border-radius: 20px;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+.credit-numbers {
+  display: flex;
+  gap: 24px;
+}
+
+.credit-numbers > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.credit-label {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 2px;
+}
+
+.credit-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0a1d37;
+}
+
+.credit-exceeded-alert {
+  margin-top: 12px;
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .profile-info {
@@ -481,6 +608,28 @@ onMounted(() => {
 
 .orders-history {
   margin-bottom: 30px;
+}
+
+.order-items-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.order-item-chip {
+  display: inline-block;
+  background: #f0f4ff;
+  color: #1a3a6e;
+  border: 1px solid #c8d8ff;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.text-muted {
+  color: #aaa;
+  font-size: 13px;
 }
 
 .orders-header {
@@ -552,6 +701,16 @@ onMounted(() => {
 .status.pending {
   background-color: #fff3e0;
   color: #f57c00;
+}
+
+.status.unpaid {
+  background-color: #fff3e0;
+  color: #f57c00;
+}
+
+.status.partially_paid {
+  background-color: #eff6ff;
+  color: #1d4ed8;
 }
 
 .status.paid {

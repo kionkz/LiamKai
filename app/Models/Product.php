@@ -6,12 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Product extends Model
 {
     protected $fillable = [
         'name',
         'category',
+        'category_id',
         'description',
         'unit_of_measure',
         'base_price',
@@ -33,7 +35,12 @@ class Product extends Model
 
     public function pricing(): HasMany
     {
-        return $this->hasMany(Pricing::class);
+        return $this->hasMany(Pricing::class)->latest('effective_date')->latest('id');
+    }
+
+    public function pricingLogs(): HasMany
+    {
+        return $this->hasMany(PricingLog::class)->latest('changed_at')->latest('id');
     }
 
     public function stockMovements(): HasMany
@@ -54,5 +61,10 @@ class Product extends Model
     public function suppliers(): BelongsToMany
     {
         return $this->belongsToMany(Supplier::class, 'product_supplier');
+    }
+
+    public function productCategory(): BelongsTo
+    {
+        return $this->belongsTo(Category::class, 'category_id');
     }
 }

@@ -12,17 +12,11 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $request->validate([
-            'email' => [
-                'required',
-                'email',
-                'regex:/@gmail\.com$/i',
-            ],
+            'username' => ['required', 'string'],
             'password' => 'required|string',
-        ], [
-            'email.regex' => 'Only Gmail addresses are allowed.',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        $user = User::where('username', $request->username)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
@@ -30,14 +24,25 @@ class AuthController extends Controller
             ], 401);
         }
 
+        if ($user->account_status === 'inactive') {
+            return response()->json([
+                'message' => 'Your account has been deactivated. Please contact an administrator.'
+            ], 403);
+        }
+
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
             'token' => $token,
             'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
+                'id'                  => $user->id,
+                'name'                => $user->name,
+                'username'            => $user->username,
+                'email'               => $user->email,
+                'role'                => $user->role,
+                'account_status'      => $user->account_status,
+                'employee_id'         => $user->employee_id,
+                'must_change_password' => (bool) $user->must_change_password,
             ]
         ]);
     }
@@ -55,9 +60,13 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
+                'id'             => $user->id,
+                'name'           => $user->name,
+                'username'       => $user->username,
+                'email'          => $user->email,
+                'role'           => $user->role,
+                'account_status' => $user->account_status,
+                'employee_id'    => $user->employee_id,
             ],
         ]);
     }
@@ -68,22 +77,27 @@ class AuthController extends Controller
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'username' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('users', 'username')->ignore($user->id),
+            ],
             'email' => [
                 'required',
                 'email',
-                'regex:/@gmail\.com$/i',
                 Rule::unique('users', 'email')->ignore($user->id),
             ],
             'password' => ['nullable', 'string', 'min:8'],
-        ], [
-            'email.regex' => 'Only Gmail addresses are allowed.',
         ]);
 
         $user->name = $validated['name'];
+    $user->username = $validated['username'];
         $user->email = $validated['email'];
 
         if (!empty($validated['password'])) {
             $user->password = Hash::make($validated['password']);
+            $user->must_change_password = false;
             // Invalidate old tokens after password change.
             $user->tokens()->delete();
             $token = $user->createToken('auth_token')->plainTextToken;
@@ -97,11 +111,53 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Profile updated successfully.',
             'data' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
+                'id'                  => $user->id,
+                'name'                => $user->name,
+                'username'            => $user->username,
+                'email'               => $user->email,
+                'role'                => $user->role,
+                'account_status'      => $user->account_status,
+                'employee_id'         => $user->employee_id,
+                'must_change_password' => (bool) $user->must_change_password,
             ],
             'token' => $token,
+        ]);
+    }
+
+    /**
+     * Force-change password (used on first login when must_change_password is true).
+     */
+    public function changePassword(Request $request)
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'password'              => ['required', 'string', 'min:8', 'confirmed'],
+            'password_confirmation' => ['required', 'string'],
+        ]);
+
+        $user->password             = Hash::make($validated['password']);
+        $user->must_change_password = false;
+        $user->save();
+
+        // Issue a fresh token
+        $user->tokens()->delete();
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password changed successfully.',
+            'token'   => $token,
+            'user'    => [
+                'id'                  => $user->id,
+                'name'                => $user->name,
+                'username'            => $user->username,
+                'email'               => $user->email,
+                'role'                => $user->role,
+                'account_status'      => $user->account_status,
+                'employee_id'         => $user->employee_id,
+                'must_change_password' => false,
+            ],
         ]);
     }
 }

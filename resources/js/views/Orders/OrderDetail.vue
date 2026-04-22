@@ -7,7 +7,7 @@
       </div>
       <div class="header-actions">
         <button @click="editOrder" class="btn btn-secondary">Edit Order</button>
-        <button @click="printOrder" class="btn btn-secondary">Print</button>
+        <button @click="exportOrderPdf" class="btn btn-secondary">Export PDF</button>
         <button @click="deleteOrder" class="btn btn-danger">Archive</button>
       </div>
     </div>
@@ -78,40 +78,28 @@
         </table>
       </div>
 
-      <!-- Payment Information -->
-      <div class="payment-info">
-        <h3>Payment Information</h3>
-        <div class="payment-details">
+      <div class="delivery-info" v-if="order.fulfillment_type">
+        <h3>Fulfillment Information</h3>
+        <div class="delivery-details">
           <div class="info-row">
-            <span class="label">Payment Method:</span>
-            <span>{{ order.payment_method || 'Cash' }}</span>
+            <span class="label">Fulfillment Type:</span>
+            <span>{{ order.fulfillment_type === 'pickup' ? 'Pickup' : 'Delivery' }}</span>
+          </div>
+          <div class="info-row" v-if="order.scheduled_for">
+            <span class="label">Scheduled Date &amp; Time:</span>
+            <span>{{ new Date(order.scheduled_for).toLocaleString() }}</span>
+          </div>
+          <div class="info-row" v-if="order.fulfillment_status">
+            <span class="label">Logistics Status:</span>
+            <span>{{ order.fulfillment_status }}</span>
           </div>
           <div class="info-row">
-            <span class="label">Payment Status:</span>
-            <span class="status" :class="order.status">{{ order.status }}</span>
+            <span class="label">Delivery Address:</span>
+            <span>{{ order.fulfillment_type === 'pickup' ? 'Customer pickup' : (order.delivery_address || '--') }}</span>
           </div>
           <div class="info-row" v-if="order.notes">
             <span class="label">Notes:</span>
             <span>{{ order.notes }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Delivery Information -->
-      <div class="delivery-info" v-if="order.delivery_address">
-        <h3>Delivery Information</h3>
-        <div class="delivery-details">
-          <div class="info-row">
-            <span class="label">Delivery Address:</span>
-            <span>{{ order.delivery_address }}</span>
-          </div>
-          <div class="info-row" v-if="order.delivery_date">
-            <span class="label">Delivery Date:</span>
-            <span>{{ new Date(order.delivery_date).toLocaleDateString() }}</span>
-          </div>
-          <div class="info-row" v-if="order.delivery_status">
-            <span class="label">Delivery Status:</span>
-            <span>{{ order.delivery_status }}</span>
           </div>
         </div>
       </div>
@@ -138,6 +126,7 @@
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../api';
+import { exportReceiptPdf } from '../../utils/receiptPdf';
 
 const route = useRoute();
 const router = useRouter();
@@ -170,8 +159,31 @@ const editOrder = () => {
   alert('Edit order functionality will be implemented');
 };
 
-const printOrder = () => {
-  window.print();
+const formatCurrency = (value) => `₱${Number(value || 0).toFixed(2)}`;
+
+const exportOrderPdf = () => {
+  if (!order.value) return;
+
+  exportReceiptPdf({
+    title: `Order #${String(order.value.id).padStart(4, '0')}`,
+    subtitle: 'Customer Order Receipt',
+    filename: `order-${String(order.value.id).padStart(4, '0')}.pdf`,
+    meta: [
+      { label: 'Customer', value: order.value.customer?.name || 'N/A' },
+      { label: 'Pricing', value: order.value.type === 'wholesale' ? 'Wholesale' : 'Retail' },
+      { label: 'Fulfillment', value: order.value.fulfillment_type === 'pickup' ? 'Pickup' : 'Delivery' },
+      { label: 'Scheduled', value: order.value.scheduled_for ? new Date(order.value.scheduled_for).toLocaleString() : '--' },
+    ],
+    items: (order.value.items || []).map((item) => ({
+      name: item.product?.name || 'N/A',
+      qty: `${item.quantity} ${item.unit || ''}`.trim(),
+      unitPrice: formatCurrency(item.unit_price),
+      amount: formatCurrency(item.total || item.subtotal),
+    })),
+    totals: [
+      { label: 'Total', value: formatCurrency(order.value.total_amount) },
+    ],
+  });
 };
 
 const deleteOrder = () => {

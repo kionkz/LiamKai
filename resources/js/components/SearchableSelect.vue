@@ -199,6 +199,9 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-family: inherit;
   background: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .search-input:focus {
@@ -249,8 +252,15 @@ onBeforeUnmount(() => {
 }
 
 .option-button.selected {
-  color: #e57c2a;
+  color: #2563eb;
   font-weight: 600;
+}
+
+.option-button.selected::before {
+  content: '✓';
+  margin-right: 8px;
+  color: #2563eb;
+  font-weight: 700;
 }
 
 .empty-state {

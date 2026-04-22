@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Http\Requests;
+namespace App\Http\Requests\Customers;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class UpdateCustomerRequest extends FormRequest
+class StoreCustomerRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -22,21 +22,11 @@ class UpdateCustomerRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => 'sometimes|required|string|max:255',
-            'email' => 'sometimes|required|email|unique:customers,email,' . $this->route('customer'),
-            'phone' => ['sometimes', 'required', 'regex:/^\+639\d{9}$/'],
-            'address' => 'sometimes|required|string',
-            'type' => 'sometimes|required|in:retail,wholesale',
-            // For updates: credit_limit may be provided for wholesale (capped), and must be absent for retail
-            'credit_limit' => [
-                'sometimes',
-                'nullable',
-                'numeric',
-                'min:0',
-                'max:15000',
-                'required_if:type,wholesale',
-                'prohibited_if:type,retail',
-            ],
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:customers,email',
+            'phone' => ['required', 'regex:/^\+639\d{9}$/'],
+            'address' => 'required|string',
+            'type' => 'required|in:retail,wholesale',
         ];
     }
 

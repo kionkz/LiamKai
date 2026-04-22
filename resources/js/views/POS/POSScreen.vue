@@ -16,39 +16,62 @@
           </div>
         </div>
 
-        <div class="category-section">
-          <h4>Category</h4>
-          <div class="category-list">
-            <button
-              v-for="category in categories"
-              :key="category"
-              type="button"
-              class="category-chip"
-              :class="{ active: isCategorySelected(category) }"
-              @click="toggleCategoryFilter(category)"
-            >
-              <span class="category-dot">{{ categoryInitial(category) }}</span>
-              <span>{{ category }}</span>
-            </button>
-          </div>
+        <div class="category-filter">
+          <SearchableSelect
+            v-model="selectedCategory"
+            :options="categoryOptions"
+            placeholder="Filter by category..."
+          />
         </div>
 
         <div v-if="loadingProducts" class="loading-products">Loading products...</div>
         <div v-else-if="loadError" class="loading-products error">{{ loadError }}</div>
-        <div class="product-list">
-          <div v-for="product in filteredProducts" :key="product.id" class="product-item" @click="addToCart(product)">
-            <p class="product-name">{{ product.name }}</p>
-            <p class="product-price">₱{{ product.price.toFixed(2) }}</p>
-          </div>
-          <div v-if="!loadingProducts && !loadError && filteredProducts.length === 0" class="empty-products">
-            <p>No products found</p>
-          </div>
+
+        <div class="product-table-wrap">
+          <table class="product-table">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Category</th>
+                <th>Stock</th>
+                <th>Price</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="product in filteredProducts"
+                :key="product.id"
+                class="product-row"
+                :class="{ 'out-of-stock': getEffectiveStock(product.id) <= 0 }"
+                @click="openQtyModal(product)"
+              >
+                <td class="td-name">{{ product.name }}</td>
+                <td class="td-cat">{{ product.category || 'Others' }}</td>
+                <td class="td-stock" :class="{ 'stock-zero': getEffectiveStock(product.id) <= 0 }">
+                  {{ formatStock(getEffectiveStock(product.id), product.unit) }}
+                </td>
+                <td class="td-price">{{ formatCurrency(product.price) }}</td>
+                <td class="td-add">
+                  <button
+                    type="button"
+                    class="btn-add"
+                    :disabled="getEffectiveStock(product.id) <= 0"
+                    @click.stop="openQtyModal(product)"
+                  >+ Add</button>
+                </td>
+              </tr>
+              <tr v-if="!loadingProducts && !loadError && filteredProducts.length === 0">
+                <td colspan="5" class="td-empty">No products found</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
       <div class="pos-cart">
         <div class="cart-header">
-          <h3>🛒 Current Order</h3>
+          <h3>Current Order</h3>
           <button v-if="lastReceipt" type="button" class="btn-reprint" @click="printReceipt(lastReceipt)">Reprint Receipt</button>
         </div>
         <div v-if="cart.length === 0" class="empty-cart">
@@ -58,60 +81,110 @@
           <div v-for="(item, idx) in cart" :key="idx" class="cart-item">
             <div class="item-info">
               <p class="item-name">{{ item.name }}</p>
-              <p class="item-price">₱{{ item.price.toFixed(2) }}</p>
+              <p class="item-price">{{ formatCurrency(item.price) }}</p>
             </div>
             <div class="item-controls">
-              <button @click="decrementQty(idx)">-</button>
-              <span class="qty">{{ item.qty }}</span>
-              <button @click="incrementQty(idx)">+</button>
+              <button type="button" @click="decrementQty(idx)">-</button>
+              <span class="qty">{{ formatQty(item) }} {{ item.unit }}</span>
+              <button type="button" @click="incrementQty(idx)">+</button>
             </div>
             <div class="item-subtotal">
-              ₱{{ (item.price * item.qty).toFixed(2) }}
+              {{ formatCurrency(item.price * item.qty) }}
             </div>
-            <button @click="removeFromCart(idx)" class="btn-remove">✕</button>
+            <button type="button" @click="removeFromCart(idx)" class="btn-remove">x</button>
           </div>
         </div>
 
         <div v-if="cart.length > 0" class="cart-summary">
           <div class="summary-row">
             <span>Subtotal:</span>
-            <span>₱{{ calculateSubtotal().toFixed(2) }}</span>
+            <span>{{ formatCurrency(calculateSubtotal()) }}</span>
           </div>
-          <div class="summary-row">
+          <div class="summary-row total-row">
             <span>Total:</span>
-            <span class="total">₱{{ calculateSubtotal().toFixed(2) }}</span>
+            <span class="total">{{ formatCurrency(calculateSubtotal()) }}</span>
           </div>
 
           <div class="payment-options">
             <h4>Payment Method</h4>
-            <label><input v-model="paymentMethod" type="radio" value="cash" /> Cash</label>
-            <label><input v-model="paymentMethod" type="radio" value="card" /> Card</label>
-            <label><input v-model="paymentMethod" type="radio" value="cod" /> COD</label>
+            <label><input v-model="paymentMethod" type="radio" value="cash" @change="gcashRef = ''" /> Cash</label>
+            <label><input v-model="paymentMethod" type="radio" value="gcash" /> GCash</label>
+          </div>
+
+          <div v-if="paymentMethod === 'gcash'" class="form-group gcash-ref-group">
+            <label>GCash Reference Number *</label>
+            <input v-model="gcashRef" type="text" placeholder="e.g. 1234567890" maxlength="50" />
           </div>
 
           <div class="cart-actions">
-            <button @click="clearCart" class="btn btn-secondary">Clear</button>
-            <button @click="completeTransaction" class="btn btn-primary">Complete & Print</button>
+            <button type="button" @click="clearCart" class="btn btn-secondary">Clear</button>
+            <button type="button" @click="completeTransaction" class="btn btn-primary"
+              :disabled="paymentMethod === 'gcash' && !gcashRef.trim()">
+              Complete & Print
+            </button>
           </div>
         </div>
       </div>
     </div>
+  <!-- Quantity input modal -->
+  <div v-if="qtyModal.open" class="qty-overlay" @click.self="closeQtyModal">
+    <div class="qty-modal">
+      <div class="qty-modal-header">
+        <h3>{{ qtyModal.product?.name }}</h3>
+        <button type="button" class="qty-modal-close" @click="closeQtyModal">×</button>
+      </div>
+      <div class="qty-modal-body">
+        <p class="qty-modal-meta">{{ formatCurrency(qtyModal.product?.price) }} per {{ qtyModal.product?.unit }}</p>
+        <label class="qty-modal-label">
+          {{ qtyModal.product?.unit === 'Per pack' ? 'Number of Packs' : 'Quantity (kg)' }}
+        </label>
+        <input
+          ref="qtyInputRef"
+          v-model.number="qtyModal.qty"
+          type="number"
+          class="qty-modal-input"
+          :min="qtyModal.product?.unit === 'Per pack' ? 1 : 0.01"
+          :step="qtyModal.product?.unit === 'Per pack' ? 1 : 0.01"
+          :max="getEffectiveStock(qtyModal.product?.id)"
+          @input="qtyModal.qty = Math.max(0, qtyModal.qty || 0)"
+          @keyup.enter="confirmQtyModal"
+        />
+        <p class="qty-modal-stock">
+          Available:
+          <strong>{{ formatStock(getEffectiveStock(qtyModal.product?.id), qtyModal.product?.unit) }}</strong>
+        </p>
+        <p v-if="qtyModalError" class="qty-modal-error">{{ qtyModalError }}</p>
+      </div>
+      <div class="qty-modal-actions">
+        <button type="button" class="btn btn-secondary" @click="closeQtyModal">Cancel</button>
+        <button type="button" class="btn btn-primary" @click="confirmQtyModal">Add to Cart</button>
+      </div>
+    </div>
+  </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import api from '../../api';
+import SearchableSelect from '../../components/SearchableSelect.vue';
 import { useAuthStore } from '../../stores/authStore';
+import { exportReceiptPdf } from '../../utils/receiptPdf';
+import { resolveRetailPrice } from '../../utils/pricing';
 
 const searchProduct = ref('');
-const selectedCategories = ref(['All']);
+const selectedCategory = ref('All');
 const cart = ref([]);
 const paymentMethod = ref('cash');
+const gcashRef = ref('');
 const products = ref([]);
 const loadingProducts = ref(false);
 const loadError = ref('');
 const lastReceipt = ref(null);
+
+const qtyModal = ref({ open: false, product: null, qty: 1 });
+const qtyModalError = ref('');
+const qtyInputRef = ref(null);
 
 const authStore = useAuthStore();
 
@@ -120,57 +193,68 @@ const categories = computed(() => {
   return ['All', ...uniqueCategories];
 });
 
-const categoryInitial = (category) => String(category || 'A').charAt(0).toUpperCase();
+const categoryOptions = computed(() => categories.value.map((cat) => ({ value: cat, label: cat })));
+
 const normalizeCategory = (value) => String(value || '').trim().toLowerCase();
 
 const filteredProducts = computed(() => {
   const keyword = searchProduct.value.trim().toLowerCase();
-
-  const selectedSet = new Set(selectedCategories.value.map((category) => normalizeCategory(category)));
-  const isAllSelected = selectedSet.has('all') || selectedSet.size === 0;
+  const isAll = !selectedCategory.value || normalizeCategory(selectedCategory.value) === 'all';
 
   return products.value.filter((product) => {
     const productCategory = normalizeCategory(product.category || 'Others');
-    const matchesCategory = isAllSelected || selectedSet.has(productCategory);
+    const matchesCategory = isAll || productCategory === normalizeCategory(selectedCategory.value);
     const matchesSearch = !keyword || String(product.name || '').toLowerCase().includes(keyword);
-
     return matchesCategory && matchesSearch;
   });
 });
 
-const isCategorySelected = (category) => {
-  return selectedCategories.value.includes(category);
+const getEffectiveStock = (productId) => {
+  const product = products.value.find((p) => p.id === productId);
+  if (!product) return 0;
+  const inCart = cart.value.find((item) => item.id === productId)?.qty || 0;
+  return Math.max(0, product.stock - inCart);
 };
 
-const toggleCategoryFilter = (category) => {
-  if (category === 'All') {
-    selectedCategories.value = ['All'];
+const openQtyModal = (product) => {
+  if (getEffectiveStock(product.id) <= 0) return;
+  const defaultQty = product.unit === 'Per pack' ? 1 : 0.5;
+  qtyModal.value = { open: true, product, qty: defaultQty };
+  qtyModalError.value = '';
+  nextTick(() => qtyInputRef.value?.focus());
+};
+
+const closeQtyModal = () => {
+  qtyModal.value.open = false;
+  qtyModalError.value = '';
+};
+
+const confirmQtyModal = () => {
+  qtyModalError.value = '';
+  const { product, qty } = qtyModal.value;
+  if (!product) return;
+
+  const quantity = Number(qty || 0);
+  const unit = product.unit || 'kg';
+  const min = unit === 'Per pack' ? 1 : 0.01;
+
+  if (quantity < min) {
+    qtyModalError.value = `Minimum quantity is ${min} ${unit}.`;
     return;
   }
 
-  const withoutAll = selectedCategories.value.filter((item) => item !== 'All');
-  if (withoutAll.includes(category)) {
-    const next = withoutAll.filter((item) => item !== category);
-    selectedCategories.value = next.length ? next : ['All'];
+  const effectiveStock = getEffectiveStock(product.id);
+  if (quantity > effectiveStock) {
+    qtyModalError.value = `Not enough stock. Available: ${formatStock(effectiveStock, unit)}`;
     return;
   }
 
-  selectedCategories.value = [...withoutAll, category];
+  addToCart(product, quantity);
+  closeQtyModal();
 };
 
 const applySearch = () => {
-  // Typing already filters live; clicking Filter normalizes input.
   searchProduct.value = searchProduct.value.trim();
-};
-
-const resolvePrice = (product) => {
-  const pricing = product.pricing?.[0];
-  const retail = Number(pricing?.retail_price);
-  const base = Number(product.base_price);
-
-  if (!Number.isNaN(retail) && retail > 0) return retail;
-  if (!Number.isNaN(base) && base > 0) return base;
-  return 0;
 };
 
 const loadProducts = async () => {
@@ -178,15 +262,18 @@ const loadProducts = async () => {
   loadError.value = '';
 
   try {
-    const response = await api.get('/products');
+    const response = await api.get('/products', { params: { per_page: 100 } });
     if (response.data?.success) {
       products.value = (response.data.data || []).map((product) => ({
         ...product,
-        price: resolvePrice(product),
+        price: resolveRetailPrice(product),
+        stock: Number(product.inventory?.quantity_on_hand ?? product.inventory?.quantity ?? 0),
+        unit: product.unit_of_measure || 'kg',
       }));
-    } else {
-      loadError.value = response.data?.message || 'Failed to load products';
+      return;
     }
+
+    loadError.value = response.data?.message || 'Failed to load products';
   } catch (err) {
     loadError.value = err.response?.data?.message || 'Failed to load products';
   } finally {
@@ -194,19 +281,33 @@ const loadProducts = async () => {
   }
 };
 
-const addToCart = (product) => {
+const formatStock = (value, unit = 'kg') => {
+  const quantity = unit === 'Per pack' ? Number(value || 0).toFixed(0) : Number(value || 0).toFixed(2);
+  return `${quantity} ${unit} available`;
+};
+
+const addToCart = (product, qty) => {
+  const quantity = Number(qty || 1);
   const existingItem = cart.value.find((item) => item.id === product.id);
 
   if (existingItem) {
-    existingItem.qty++;
-  } else {
-    cart.value.push({
-      id: product.id,
-      name: product.name,
-      price: Number(product.price || 0),
-      qty: 1,
-    });
+    existingItem.qty = Number((existingItem.qty + quantity).toFixed(2));
+    return;
   }
+
+  cart.value.push({
+    id: product.id,
+    name: product.name,
+    price: Number(product.price || 0),
+    qty: quantity,
+    unit: product.unit || 'kg',
+  });
+};
+
+const formatQty = (item) => {
+  return item.unit === 'Per pack'
+    ? Number(item.qty || 0).toFixed(0)
+    : Number(item.qty || 0).toFixed(2);
 };
 
 const removeFromCart = (idx) => {
@@ -214,37 +315,36 @@ const removeFromCart = (idx) => {
 };
 
 const incrementQty = (idx) => {
-  cart.value[idx].qty++;
+  const item = cart.value[idx];
+  const product = products.value.find((p) => p.id === item.id);
+  const effectiveStock = product ? product.stock : Infinity;
+  const step = item.unit === 'Per pack' ? 1 : 0.01;
+  const newQty = Number((item.qty + step).toFixed(2));
+  if (newQty > effectiveStock) return;
+  item.qty = newQty;
 };
 
 const decrementQty = (idx) => {
-  if (cart.value[idx].qty > 1) {
-    cart.value[idx].qty--;
-  }
+  const item = cart.value[idx];
+  const step = item.unit === 'Per pack' ? 1 : 0.01;
+  const min = step;
+  const newQty = Number((item.qty - step).toFixed(2));
+  if (newQty < min) return;
+  item.qty = newQty;
 };
 
-const calculateSubtotal = () => {
-  return cart.value.reduce((sum, item) => sum + (item.price * item.qty), 0);
+const clearCart = () => {
+  cart.value = [];
 };
 
-const formatCurrency = (amount) => `₱${Number(amount || 0).toFixed(2)}`;
+const calculateSubtotal = () => cart.value.reduce((sum, item) => sum + (item.price * item.qty), 0);
+
+const formatCurrency = (amount) => `PHP ${Number(amount || 0).toFixed(2)}`;
 
 const formatPaymentMethodLabel = (method) => {
-  const labels = {
-    cash: 'Cash',
-    card: 'Card',
-    cod: 'COD',
-  };
-
+  const labels = { cash: 'Cash', gcash: 'GCash' };
   return labels[method] || String(method || '').toUpperCase();
 };
-
-const escapeHtml = (value) => String(value ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#39;');
 
 const buildReceiptData = () => {
   const issuedAt = new Date();
@@ -262,6 +362,7 @@ const buildReceiptData = () => {
     }),
     cashier: authStore.user?.name || authStore.user?.username || 'Cashier',
     paymentMethod: formatPaymentMethodLabel(paymentMethod.value),
+    gcashRef: paymentMethod.value === 'gcash' ? gcashRef.value.trim() : null,
     items: cart.value.map((item) => ({
       name: item.name,
       qty: Number(item.qty || 0),
@@ -273,114 +374,40 @@ const buildReceiptData = () => {
   };
 };
 
-const buildReceiptHtml = (receipt) => {
-  const itemsMarkup = receipt.items.map((item) => `
-      <tr>
-        <td>${escapeHtml(item.name)}</td>
-        <td class="num">${item.qty}</td>
-        <td class="num">${formatCurrency(item.price)}</td>
-        <td class="num">${formatCurrency(item.subtotal)}</td>
-      </tr>
-    `).join('');
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Walk-In POS Receipt</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 24px; color: #111827; }
-    .receipt { max-width: 420px; margin: 0 auto; }
-    .header { text-align: center; margin-bottom: 16px; }
-    .header h1 { margin: 0 0 4px; font-size: 24px; }
-    .header p { margin: 0; color: #4b5563; font-size: 12px; }
-    .meta { margin: 16px 0; font-size: 12px; }
-    .meta-row { display: flex; justify-content: space-between; margin-bottom: 4px; gap: 12px; }
-    table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 12px; }
-    th, td { border-bottom: 1px dashed #d1d5db; padding: 8px 0; text-align: left; vertical-align: top; }
-    .num { text-align: right; white-space: nowrap; }
-    .totals { margin-top: 16px; }
-    .total-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
-    .grand-total { font-weight: 700; font-size: 16px; border-top: 2px solid #111827; padding-top: 8px; }
-    .footer { margin-top: 20px; text-align: center; color: #4b5563; font-size: 12px; }
-    @media print {
-      body { padding: 0; }
-      .receipt { max-width: none; }
-    }
-  </style>
-</head>
-<body>
-  <div class="receipt">
-    <div class="header">
-      <h1>LiamKai</h1>
-      <p>Walk-In POS Receipt</p>
-    </div>
-
-    <div class="meta">
-      <div class="meta-row"><span>Receipt No.</span><span>${escapeHtml(receipt.receiptNumber)}</span></div>
-      <div class="meta-row"><span>Date</span><span>${escapeHtml(receipt.issuedAt)}</span></div>
-      <div class="meta-row"><span>Cashier</span><span>${escapeHtml(receipt.cashier)}</span></div>
-      <div class="meta-row"><span>Payment</span><span>${escapeHtml(receipt.paymentMethod)}</span></div>
-    </div>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Item</th>
-          <th class="num">Qty</th>
-          <th class="num">Price</th>
-          <th class="num">Amount</th>
-        </tr>
-      </thead>
-      <tbody>${itemsMarkup}</tbody>
-    </table>
-
-    <div class="totals">
-      <div class="total-row"><span>Subtotal</span><span>${formatCurrency(receipt.subtotal)}</span></div>
-      <div class="total-row grand-total"><span>Total</span><span>${formatCurrency(receipt.total)}</span></div>
-    </div>
-
-    <div class="footer">Thank you for your purchase.</div>
-  </div>
-  <script>
-    window.addEventListener('load', function () {
-      window.print();
-    });
-    window.addEventListener('afterprint', function () {
-      window.close();
-    });
-  <\/script>
-</body>
-</html>`;
-};
-
-const printReceipt = (receipt) => {
-  const printWindow = window.open('', '_blank', 'width=520,height=720');
-
-  if (!printWindow) {
-    alert('Unable to open the print window. Please allow pop-ups and try again.');
-    return false;
-  }
-
-  printWindow.document.open();
-  printWindow.document.write(buildReceiptHtml(receipt));
-  printWindow.document.close();
-  return true;
-};
-
-const clearCart = () => {
-  cart.value = [];
+const printReceipt = (receipt = buildReceiptData()) => {
+  exportReceiptPdf({
+    title: 'Walk-In POS Receipt',
+    subtitle: 'LiamKai',
+    filename: `${receipt.receiptNumber}.pdf`,
+    meta: [
+      { label: 'Receipt No.', value: receipt.receiptNumber },
+      { label: 'Date', value: receipt.issuedAt },
+      { label: 'Cashier', value: receipt.cashier },
+      { label: 'Payment', value: receipt.paymentMethod },
+      ...(receipt.gcashRef ? [{ label: 'GCash Ref', value: receipt.gcashRef }] : []),
+    ],
+    items: receipt.items.map((item) => ({
+      name: item.name,
+      qty: item.qty,
+      unitPrice: formatCurrency(item.price),
+      amount: formatCurrency(item.subtotal),
+    })),
+    totals: [
+      { label: 'Subtotal', value: formatCurrency(receipt.subtotal) },
+      { label: 'Total', value: formatCurrency(receipt.total) },
+    ],
+  });
 };
 
 const completeTransaction = () => {
+  if (!cart.value.length) return;
+  if (paymentMethod.value === 'gcash' && !gcashRef.value.trim()) return;
+
   const receipt = buildReceiptData();
   lastReceipt.value = receipt;
-
-  if (!printReceipt(receipt)) {
-    return;
-  }
-
+  printReceipt(receipt);
   clearCart();
+  gcashRef.value = '';
   paymentMethod.value = 'cash';
 };
 
@@ -393,9 +420,6 @@ onMounted(() => {
 .pos-container {
   height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
 }
 
 .pos-main {
@@ -455,61 +479,8 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.category-section {
+.category-filter {
   margin-bottom: 14px;
-}
-
-.category-section h4 {
-  margin: 0 0 8px;
-  color: #0a1d37;
-  font-size: 22px;
-}
-
-.category-list {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-}
-
-.category-chip {
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: #f3f5f8;
-  color: #27344d;
-  width: 90px;
-  min-width: 90px;
-  padding: 8px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.category-chip.active {
-  border-color: #e57c2a;
-}
-
-.category-dot {
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  background: linear-gradient(145deg, #42a5d9, #1f5f96);
-  color: #fff;
-  font-size: 22px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.product-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 10px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .loading-products {
@@ -522,39 +493,228 @@ onMounted(() => {
   color: #c33;
 }
 
-.empty-products {
-  grid-column: 1 / -1;
-  text-align: center;
-  color: #999;
-  padding: 20px 0;
+.product-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
 }
 
-.product-item {
-  background-color: #f9f9f9;
-  padding: 12px;
-  border-radius: 6px;
+.product-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.product-table thead tr {
+  background: #f3f6fb;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.product-table th {
+  padding: 11px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #667085;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid #e4e7ec;
+  white-space: nowrap;
+}
+
+.product-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f1f4f8;
+  vertical-align: middle;
+}
+
+.product-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.product-row {
   cursor: pointer;
-  transition: all 0.2s;
-  border: 2px solid transparent;
-  text-align: center;
+  transition: background 0.12s;
 }
 
-.product-item:hover {
-  background-color: #e57c2a;
-  color: white;
-  border-color: #d46a1a;
+.product-row:hover {
+  background: #fef6ee;
 }
 
-.product-name {
-  margin: 0 0 8px 0;
+.td-name {
   font-weight: 600;
+  color: #0a1d37;
+}
+
+.td-cat {
+  color: #667085;
   font-size: 13px;
 }
 
-.product-price {
-  margin: 0;
-  font-size: 14px;
+.td-stock {
+  color: #5b6575;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.td-price {
   font-weight: 700;
+  color: #e57c2a;
+  white-space: nowrap;
+}
+
+.td-add {
+  text-align: right;
+}
+
+.btn-add {
+  padding: 6px 14px;
+  border: 1px solid #e57c2a;
+  border-radius: 8px;
+  background: #fff7f0;
+  color: #e57c2a;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+
+.btn-add:hover {
+  background: #e57c2a;
+  color: #fff;
+}
+
+.btn-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.td-empty {
+  text-align: center;
+  padding: 32px;
+  color: #9caab8;
+  font-size: 14px;
+}
+
+.stock-zero {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.out-of-stock {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ── Quantity Modal ─────────────────────────────── */
+.qty-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 29, 55, 0.45);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qty-modal {
+  background: #fff;
+  border-radius: 18px;
+  width: min(420px, 94vw);
+  box-shadow: 0 24px 60px rgba(10, 29, 55, 0.18);
+  overflow: hidden;
+}
+
+.qty-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #e4e7ec;
+}
+
+.qty-modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0a1d37;
+}
+
+.qty-modal-close {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: #f1f4f8;
+  color: #0a1d37;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.qty-modal-body {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.qty-modal-meta {
+  margin: 0;
+  font-size: 13px;
+  color: #667085;
+}
+
+.qty-modal-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #344054;
+}
+
+.qty-modal-input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid #d8dde3;
+  border-radius: 12px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #0a1d37;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.qty-modal-input:focus {
+  outline: none;
+  border-color: #e57c2a;
+  box-shadow: 0 0 0 3px rgba(229, 124, 42, 0.18);
+}
+
+.qty-modal-stock {
+  margin: 0;
+  font-size: 13px;
+  color: #667085;
+}
+
+.qty-modal-error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #fff1f2;
+  border: 1px solid #fecdca;
+  color: #b42318;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.qty-modal-actions {
+  display: flex;
+  gap: 10px;
+  padding: 16px 24px 24px;
 }
 
 .pos-cart {
@@ -608,7 +768,7 @@ onMounted(() => {
 
 .cart-items {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
   margin-bottom: 15px;
 }
 
@@ -685,18 +845,52 @@ onMounted(() => {
 .summary-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   margin-bottom: 10px;
   font-size: 13px;
 }
 
+.total-row {
+  border-top: 1px solid #e0e0e0;
+  padding-top: 10px;
+  margin-top: 4px;
+}
+
 .summary-row .total {
   font-weight: 700;
-  font-size: 16px;
+  font-size: 18px;
   color: #e57c2a;
 }
 
+.gcash-ref-group {
+  margin: 8px 0 4px;
+}
+
+.gcash-ref-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #444;
+  margin-bottom: 5px;
+}
+
+.gcash-ref-group input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.gcash-ref-group input:focus {
+  outline: none;
+  border-color: #e57c2a;
+  box-shadow: 0 0 0 2px rgba(229,124,42,0.15);
+}
+
 .payment-options {
-  margin: 15px 0;
+  margin: 15px 0 8px;
   padding: 10px 0;
   border-top: 1px solid #e0e0e0;
 }
@@ -716,7 +910,7 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.payment-options input[type="radio"] {
+.payment-options input[type='radio'] {
   margin-right: 8px;
 }
 
@@ -742,8 +936,13 @@ onMounted(() => {
   color: white;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background-color: #d46a1a;
+}
+
+.btn-primary:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
@@ -754,5 +953,11 @@ onMounted(() => {
 
 .btn-secondary:hover {
   background-color: #e0e0e0;
+}
+
+@media (max-width: 1024px) {
+  .pos-main {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -3,11 +3,16 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\StoreProductRequest;
-use App\Http\Requests\UpdateProductRequest;
+use App\Models\Category;
+use App\Http\Requests\Products\StoreProductRequest;
+use App\Http\Requests\Products\UpdateProductRequest;
 use App\Models\Product;
 use App\Models\Pricing;
+use App\Models\PricingLog;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+
+use App\Support\PricingMath;
 
 class ProductController extends Controller
 {
@@ -17,8 +22,11 @@ class ProductController extends Controller
     public function index(): JsonResponse
     {
         try {
-            $products = Product::with('inventory', 'pricing', 'suppliers')
-                ->paginate(15);
+            $perPage = (int) request()->integer('per_page', 15);
+            $perPage = max(1, min($perPage, 100));
+
+            $products = Product::with('inventory', 'pricing', 'suppliers', 'productCategory')
+                ->paginate($perPage);
             
             return response()->json([
                 'success' => true,
@@ -46,42 +54,37 @@ class ProductController extends Controller
     public function store(StoreProductRequest $request): JsonResponse
     {
         try {
-            // Prepare product data
-            $productData = $request->validated();
-            
-            // Use retail_price as base_price (or default to 0)
-            $productData['base_price'] = $productData['retail_price'] ?? 0;
-            $productData['expiration_date'] = now()->addMonths(6)->toDateString();
-            
-            // Create the product
-            $product = Product::create($productData);
-            
-            // Initialize inventory for this product
-            // Stock starts at 0 and will be updated via purchase orders
-            $product->inventory()->create([
-                'product_id' => $product->id,
-                'quantity' => 0,
-                'reorder_point' => 5, // Default reorder point - can be updated via purchase orders
-                'status' => 'available',
-            ]);
-            
-            // Create pricing if provided
-            $retail = $request->input('retail_price');
-            $wholesale = $request->input('wholesale_price');
-            if (!is_null($retail) || !is_null($wholesale)) {
-                Pricing::create([
+            $product = DB::transaction(function () use ($request) {
+                $productData = $request->validated();
+                $category = Category::findOrFail($productData['category_id']);
+                $productData['category'] = $category->name;
+                $productData['base_price'] = $productData['retail_price'];
+                $productData['expiration_date'] = now()
+                    ->addMonths(config('operations.inventory.default_product_expiration_months', 6))
+                    ->toDateString();
+
+                $product = Product::create($productData);
+
+                $product->inventory()->create([
                     'product_id' => $product->id,
-                    'retail_price' => $retail ?? 0,
-                    'wholesale_price' => $wholesale ?? 0,
-                    'effective_date' => now()->toDateString(),
-                    'status' => 'active',
+                    'quantity' => 0,
+                    'reorder_point' => config('operations.inventory.default_reorder_point', 5),
+                    'status' => 'available',
                 ]);
-            }
+
+                $this->syncPricing(
+                    $product,
+                    (float) $request->input('retail_price'),
+                    $request->input('discount_percent')
+                );
+
+                return $product;
+            });
             
             return response()->json([
                 'success' => true,
                 'message' => 'Product created successfully',
-                'data' => $product->load('inventory', 'pricing')
+                'data' => $product->load('inventory', 'pricing', 'pricingLogs', 'productCategory')
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
@@ -98,7 +101,7 @@ class ProductController extends Controller
     public function show(string $id): JsonResponse
     {
         try {
-            $product = Product::with('inventory', 'pricing', 'suppliers', 'stockMovements')
+            $product = Product::with('inventory', 'pricing', 'pricingLogs', 'suppliers', 'stockMovements', 'productCategory')
                 ->findOrFail($id);
             
             return response()->json([
@@ -125,26 +128,35 @@ class ProductController extends Controller
     public function update(UpdateProductRequest $request, string $id): JsonResponse
     {
         try {
-            $product = Product::findOrFail($id);
-            $product->update($request->validated());
-            
-                // If pricing values provided, create a new pricing entry effective now
-                $retail = $request->input('retail_price');
-                $wholesale = $request->input('wholesale_price');
-                if (!is_null($retail) || !is_null($wholesale)) {
-                    Pricing::create([
-                        'product_id' => $product->id,
-                        'retail_price' => $retail ?? 0,
-                        'wholesale_price' => $wholesale ?? 0,
-                        'effective_date' => now()->toDateString(),
-                        'status' => 'active',
-                    ]);
+            $product = DB::transaction(function () use ($request, $id) {
+                $product = Product::findOrFail($id);
+                $validated = $request->validated();
+
+                if (array_key_exists('category_id', $validated)) {
+                    $validated['category'] = Category::findOrFail($validated['category_id'])->name;
                 }
+
+                if (array_key_exists('retail_price', $validated)) {
+                    $validated['base_price'] = $validated['retail_price'];
+                }
+
+                $product->update($validated);
+
+                if (array_key_exists('retail_price', $validated) || array_key_exists('discount_percent', $validated)) {
+                    $this->syncPricing(
+                        $product,
+                        $validated['retail_price'] ?? null,
+                        $validated['discount_percent'] ?? null
+                    );
+                }
+
+                return $product;
+            });
             
             return response()->json([
                 'success' => true,
                 'message' => 'Product updated successfully',
-                'data' => $product->load('inventory', 'pricing')
+                'data' => $product->load('inventory', 'pricing', 'pricingLogs', 'productCategory')
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -185,5 +197,49 @@ class ProductController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function syncPricing(Product $product, float|int|string|null $retailPrice = null, float|int|string|null $discountPercent = null): void
+    {
+        $activePricing = $product->pricing()->first();
+        $resolvedRetailPrice = (float) ($retailPrice ?? $activePricing?->retail_price ?? $product->base_price ?? 0);
+        $resolvedDiscountPercent = PricingMath::normalizeDiscountPercent($discountPercent ?? $activePricing?->discount_percent ?? 0);
+        $resolvedDiscountedPrice = PricingMath::calculateDiscountedPrice($resolvedRetailPrice, $resolvedDiscountPercent);
+
+        if (
+            $activePricing
+            && (float) $activePricing->retail_price === $resolvedRetailPrice
+            && (float) ($activePricing->discount_percent ?? 0) === $resolvedDiscountPercent
+            && (float) ($activePricing->discounted_price ?? 0) === $resolvedDiscountedPrice
+        ) {
+            return;
+        }
+
+        if ($activePricing) {
+            $activePricing->update([
+                'status' => 'inactive',
+                'end_date' => now()->toDateString(),
+            ]);
+        }
+
+        Pricing::create([
+            'product_id' => $product->id,
+            'retail_price' => $resolvedRetailPrice,
+            'discount_percent' => $resolvedDiscountPercent,
+            'discounted_price' => $resolvedDiscountedPrice,
+            'effective_date' => now()->toDateString(),
+            'status' => 'active',
+        ]);
+
+        PricingLog::create([
+            'product_id' => $product->id,
+            'old_retail_price' => $activePricing?->retail_price,
+            'new_retail_price' => $resolvedRetailPrice,
+            'old_discount_percent' => $activePricing?->discount_percent,
+            'new_discount_percent' => $resolvedDiscountPercent,
+            'old_discounted_price' => $activePricing?->discounted_price,
+            'new_discounted_price' => $resolvedDiscountedPrice,
+            'changed_at' => now(),
+        ]);
     }
 }

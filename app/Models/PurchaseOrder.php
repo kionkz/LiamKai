@@ -20,6 +20,7 @@ class PurchaseOrder extends Model
         'actual_delivery_date',
         'payment_status',
         'notes',
+        'received_by',
     ];
 
     protected $casts = [
