@@ -12,6 +12,12 @@ class LogisticsController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        if ($request->has('include_all')) {
+            $request->merge([
+                'include_all' => filter_var($request->query('include_all'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? false,
+            ]);
+        }
+
         $validated = $request->validate([
             'date' => ['sometimes', 'date'],
             'date_from' => ['sometimes', 'date'],
@@ -70,6 +76,8 @@ class LogisticsController extends Controller
             });
         }
 
+        $countsQuery = clone $baseQuery;
+
         if (!empty($validated['status'])) {
             $baseQuery->where('fulfillment_status', $validated['status']);
         }
@@ -106,10 +114,10 @@ class LogisticsController extends Controller
                 'sort_by' => $sortBy,
                 'sort_direction' => $sortDirection,
                 'counts' => [
-                    'total' => (clone $baseQuery)->count(),
-                    'pending' => (clone $baseQuery)->where('fulfillment_status', 'pending')->count(),
-                    'in_progress' => (clone $baseQuery)->where('fulfillment_status', 'in_progress')->count(),
-                    'completed' => (clone $baseQuery)->where('fulfillment_status', 'completed')->count(),
+                    'total' => (clone $countsQuery)->count(),
+                    'pending' => (clone $countsQuery)->where('fulfillment_status', 'pending')->count(),
+                    'in_progress' => (clone $countsQuery)->where('fulfillment_status', 'in_progress')->count(),
+                    'completed' => (clone $countsQuery)->where('fulfillment_status', 'completed')->count(),
                 ],
             ],
             'pagination' => [
@@ -134,6 +142,20 @@ class LogisticsController extends Controller
             ], 422);
         }
 
+        if ($order->fulfillment_status === 'completed' && $validated['status'] !== 'completed') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Completed logistics orders cannot be moved back to an earlier status.',
+            ], 422);
+        }
+
+        if ($order->fulfillment_status === 'pending' && $validated['status'] === 'completed') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Move the order to en-route before marking it completed.',
+            ], 422);
+        }
+
         $order->update([
             'fulfillment_status' => $validated['status'],
             'delivery_status' => match ($validated['status']) {
@@ -149,6 +171,7 @@ class LogisticsController extends Controller
             'data' => [
                 'id' => $order->id,
                 'status' => $order->fulfillment_status,
+                'delivery_status' => $order->delivery_status,
             ],
         ]);
     }

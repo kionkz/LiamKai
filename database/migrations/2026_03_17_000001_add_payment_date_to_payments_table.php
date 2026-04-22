@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::hasColumn('payments', 'payment_date')) {
+            return;
+        }
+
         Schema::table('payments', function (Blueprint $table) {
             $table->date('payment_date')->nullable()->after('payment_method');
         });
@@ -21,6 +25,10 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (! Schema::hasColumn('payments', 'payment_date')) {
+            return;
+        }
+
         Schema::table('payments', function (Blueprint $table) {
             $table->dropColumn('payment_date');
         });

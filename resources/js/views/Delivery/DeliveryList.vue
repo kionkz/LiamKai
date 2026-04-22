@@ -6,14 +6,14 @@
       <article class="stat-card">
         <div class="stat-icon blue">&#8594;</div>
         <div>
-          <p class="stat-label">En-route</p>
+          <p class="stat-label">In Progress</p>
           <p class="stat-value">{{ meta.in_progress }}</p>
         </div>
       </article>
       <article class="stat-card">
         <div class="stat-icon green">&#10003;</div>
         <div>
-          <p class="stat-label">Delivered Today</p>
+          <p class="stat-label">Completed</p>
           <p class="stat-value">{{ meta.completed }}</p>
         </div>
       </article>
@@ -52,8 +52,8 @@
         <input v-model="dateTo" class="filter-input date-input" type="date" :disabled="includeAllOrders" />
         <select v-model="selectedStatus" class="filter-input" data-searchable="off">
           <option value="all">All Statuses</option>
-          <option value="in_progress">En-route</option>
-          <option value="completed">Delivered</option>
+          <option value="in_progress">In Progress</option>
+          <option value="completed">Completed</option>
           <option value="pending">Pending</option>
         </select>
         <select v-model="sortBy" class="filter-input" data-searchable="off">
@@ -118,7 +118,7 @@
               <td>{{ formatDateTime(order.scheduled_for) }}</td>
               <td class="amount-cell">₱{{ formatAmount(order.total_amount) }}</td>
               <td>
-                <span class="status-pill" :class="order.status">{{ statusLabel(order.status) }}</span>
+                <span class="status-pill" :class="order.status">{{ statusLabel(order.status, order.fulfillment_type) }}</span>
               </td>
             </tr>
             <tr v-if="orders.length === 0">
@@ -163,9 +163,9 @@ const sortDirection = ref('asc');
 const pagination = ref({ current_page: 1, last_page: 1, per_page: 25, total: 0 });
 const meta = ref({ total: 0, pending: 0, in_progress: 0, completed: 0 });
 
-const statusLabel = (status) => {
-  if (status === 'in_progress') return 'En-route';
-  if (status === 'completed') return 'Delivered';
+const statusLabel = (status, fulfillmentType = 'delivery') => {
+  if (status === 'in_progress') return fulfillmentType === 'pickup' ? 'Ready for Pickup' : 'En-route';
+  if (status === 'completed') return fulfillmentType === 'pickup' ? 'Picked Up' : 'Delivered';
   return 'Pending';
 };
 

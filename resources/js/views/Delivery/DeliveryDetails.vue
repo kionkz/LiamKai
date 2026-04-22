@@ -8,7 +8,7 @@
         <h1 v-if="order">Order #{{ String(order.id).padStart(4, '0') }}</h1>
       </div>
       <span v-if="order" class="status-pill" :class="order.fulfillment_status">
-        {{ statusLabel(order.fulfillment_status) }}
+        {{ statusLabel(order.fulfillment_status, order.fulfillment_type) }}
       </span>
     </div>
 
@@ -88,11 +88,11 @@
             :key="opt.value"
             class="status-btn"
             :class="{ active: order.fulfillment_status === opt.value }"
-            :disabled="updating || order.fulfillment_status === opt.value"
+            :disabled="updating || !canSelectStatus(opt.value)"
             @click="updateStatus(opt.value)"
           >
             <span class="btn-icon">{{ opt.icon }}</span>
-            {{ opt.label }}
+            {{ statusLabel(opt.value, order.fulfillment_type) }}
           </button>
         </div>
         <p v-if="updateMessage" class="update-msg" :class="{ error: updateError }">
@@ -119,15 +119,22 @@ const updateError = ref(false);
 const order = ref(null);
 
 const statusOptions = [
-  { value: 'pending',     label: 'Pending',   icon: '○' },
-  { value: 'in_progress', label: 'En-route',  icon: '→' },
-  { value: 'completed',   label: 'Delivered', icon: '✓' },
+  { value: 'pending', icon: '○' },
+  { value: 'in_progress', icon: '→' },
+  { value: 'completed', icon: '✓' },
 ];
 
-const statusLabel = (s) => {
-  if (s === 'in_progress') return 'En-route';
-  if (s === 'completed')   return 'Delivered';
+const statusLabel = (s, fulfillmentType = 'delivery') => {
+  if (s === 'in_progress') return fulfillmentType === 'pickup' ? 'Ready for Pickup' : 'En-route';
+  if (s === 'completed') return fulfillmentType === 'pickup' ? 'Picked Up' : 'Delivered';
   return 'Pending';
+};
+
+const canSelectStatus = (status) => {
+  if (!order.value || order.value.fulfillment_status === status) return false;
+  if (order.value.fulfillment_status === 'completed') return false;
+  if (order.value.fulfillment_status === 'pending' && status === 'completed') return false;
+  return true;
 };
 
 const formatDateTime = (value) => {
@@ -165,7 +172,11 @@ const updateStatus = async (status) => {
   try {
     const res = await api.patch(`/orders/${order.value.id}/fulfillment-status`, { status });
     if (res.data?.success) {
-      order.value = { ...order.value, fulfillment_status: res.data.data?.status || status };
+      order.value = {
+        ...order.value,
+        fulfillment_status: res.data.data?.status || status,
+        delivery_status: res.data.data?.delivery_status || order.value.delivery_status,
+      };
       updateMessage.value = 'Status updated successfully.';
       return;
     }

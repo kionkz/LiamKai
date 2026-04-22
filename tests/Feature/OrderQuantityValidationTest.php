@@ -7,6 +7,7 @@ use App\Models\Inventory;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -22,21 +23,24 @@ class OrderQuantityValidationTest extends TestCase
             'app.cipher' => 'AES-256-CBC',
             'app.key' => 'base64:J63H4fSX8R2qxGn8pY/+bexdFv+xo5jBqFaUG2RglN8=',
         ]);
+
+        $this->actingAs(User::factory()->create(['role' => 'sales']), 'sanctum');
     }
 
     public function test_retail_orders_reject_items_at_or_above_ten_kilos(): void
     {
-        $customer = $this->createCustomer();
+        $customer = $this->createCustomer('retail');
         $product = $this->createProductWithInventory();
 
         $response = $this->postJson('/api/orders', [
             'customer_id' => $customer->id,
-            'type' => 'retail',
+            'fulfillment_type' => 'delivery',
+            'scheduled_for' => now()->addDay()->toDateTimeString(),
+            'delivery_address' => 'Test Address',
             'items' => [
                 [
                     'product_id' => $product->id,
                     'quantity' => 10,
-                    'unit_price' => 125,
                 ],
             ],
         ]);
@@ -55,17 +59,18 @@ class OrderQuantityValidationTest extends TestCase
 
     public function test_wholesale_orders_reject_items_below_ten_kilos(): void
     {
-        $customer = $this->createCustomer();
+        $customer = $this->createCustomer('wholesale');
         $product = $this->createProductWithInventory();
 
         $response = $this->postJson('/api/orders', [
             'customer_id' => $customer->id,
-            'type' => 'wholesale',
+            'fulfillment_type' => 'delivery',
+            'scheduled_for' => now()->addDay()->toDateTimeString(),
+            'delivery_address' => 'Test Address',
             'items' => [
                 [
                     'product_id' => $product->id,
                     'quantity' => 9.99,
-                    'unit_price' => 110,
                 ],
             ],
         ]);
@@ -118,11 +123,11 @@ class OrderQuantityValidationTest extends TestCase
         );
     }
 
-    private function createCustomer(): Customer
+    private function createCustomer(string $type = 'retail'): Customer
     {
         return Customer::create([
             'name' => 'Validation Test Customer',
-            'type' => 'retail',
+            'type' => $type,
             'email' => 'validation@example.com',
             'phone' => '+639123456789',
             'address' => 'Test Address',

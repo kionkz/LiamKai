@@ -193,21 +193,25 @@ onBeforeUnmount(() => {
 
 .search-input {
   width: 100%;
+  min-height: 42px;
   padding: 10px 42px 10px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
   font-size: 14px;
   font-family: inherit;
   background: #fff;
+  color: #10243e;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
 }
 
 .search-input:focus {
   outline: none;
   border-color: #e57c2a;
-  background-color: #fef9f5;
+  box-shadow: 0 0 0 3px rgba(229, 124, 42, 0.2);
+  background-color: #fff;
 }
 
 .toggle-button {
@@ -220,6 +224,7 @@ onBeforeUnmount(() => {
   color: #555;
   cursor: pointer;
   font-size: 14px;
+  min-height: 0;
 }
 
 .dropdown-panel {
@@ -229,8 +234,8 @@ onBeforeUnmount(() => {
   right: 0;
   z-index: 50;
   background: #fff;
-  border: 1px solid #d8dde3;
-  border-radius: 8px;
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
   max-height: 240px;
   overflow-y: auto;
@@ -244,6 +249,8 @@ onBeforeUnmount(() => {
   text-align: left;
   cursor: pointer;
   font-size: 13px;
+  color: #10243e;
+  min-height: 38px;
 }
 
 .option-button:hover,

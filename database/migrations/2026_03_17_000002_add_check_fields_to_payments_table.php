@@ -12,8 +12,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('payments', function (Blueprint $table) {
-            $table->date('deposit_date')->nullable()->after('payment_date');
-            $table->string('check_from')->nullable()->after('deposit_date');
+            if (! Schema::hasColumn('payments', 'deposit_date')) {
+                $table->date('deposit_date')->nullable()->after('payment_date');
+            }
+
+            if (! Schema::hasColumn('payments', 'check_from')) {
+                $table->string('check_from')->nullable()->after('deposit_date');
+            }
         });
     }
 
@@ -22,8 +27,17 @@ return new class extends Migration
      */
     public function down(): void
     {
+        $columns = array_filter([
+            Schema::hasColumn('payments', 'deposit_date') ? 'deposit_date' : null,
+            Schema::hasColumn('payments', 'check_from') ? 'check_from' : null,
+        ]);
+
+        if ($columns === []) {
+            return;
+        }
+
         Schema::table('payments', function (Blueprint $table) {
-            $table->dropColumn(['deposit_date', 'check_from']);
+            $table->dropColumn($columns);
         });
     }
 };

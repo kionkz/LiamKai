@@ -318,16 +318,16 @@ watch(() => route.path, () => {
 .app-wrapper {
   display: flex;
   height: 100vh;
-  background-color: #f3f4f5;
+  background-color: #f4f6f8;
   align-items: stretch;
   overflow: hidden;
 }
 
 .sidebar {
   width: 280px;
-  background-color: #0a1d37;
+  background: linear-gradient(180deg, #0a1d37 0%, #08172c 100%);
   color: white;
-  padding: 20px;
+  padding: 18px 16px;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -336,20 +336,24 @@ watch(() => route.path, () => {
   z-index: 20;
   flex-shrink: 0;
   overflow-y: auto;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 4px 0 18px rgba(15, 23, 42, 0.16);
 }
 
 .logo {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-bottom: 2px solid #e57c2a;
-  padding-bottom: 12px;
+  border-radius: 12px;
+  padding: 14px 12px;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .logo h2 {
   color: #e57c2a;
-  font-size: 48px;
-  line-height: 0.95;
+  font-size: 36px;
+  line-height: 1;
   margin: 0;
+  letter-spacing: 0.01em;
 }
 
 .logo p {
@@ -363,18 +367,29 @@ watch(() => route.path, () => {
   list-style: none;
   padding: 0;
   margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.nav-menu > li {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .nav-menu a {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
+  min-height: 44px;
+  padding: 10px 12px;
   color: #f0f4fa;
   text-decoration: none;
-  border-radius: 6px;
-  transition: all 0.3s;
-  font-size: 17px;
+  border-radius: 0;
+  transition: all 0.18s ease;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .nav-menu a:hover {
@@ -382,7 +397,7 @@ watch(() => route.path, () => {
 }
 
 .nav-menu a.active {
-  background-color: rgba(184, 201, 224, 0.28);
+  background-color: rgba(255, 255, 255, 0.12);
   color: white;
   position: relative;
 }
@@ -410,7 +425,7 @@ watch(() => route.path, () => {
 }
 
 .menu-group {
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .group-head {
@@ -418,14 +433,16 @@ watch(() => route.path, () => {
   align-items: center;
   gap: 10px;
   width: 100%;
+  min-height: 44px;
   border: 0;
   background: transparent;
   text-align: left;
   cursor: pointer;
   color: #f0f4fa;
-  font-size: 17px;
-  padding: 8px 10px;
-  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 10px 12px;
+  border-radius: 0;
   position: relative;
 }
 
@@ -456,20 +473,25 @@ watch(() => route.path, () => {
 }
 
 .sub-links {
-  margin-left: 32px;
+  margin-left: 0;
   display: grid;
-  gap: 2px;
+  gap: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .sub-links a {
-  font-size: 15px;
-  padding: 5px 10px;
+  min-height: 38px;
+  font-size: 14px;
+  padding: 9px 12px 9px 44px;
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  font-weight: 600;
 }
 
 .sidebar-footer {
-  border-top: 2px solid #1a3a52;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
   padding-top: 14px;
-  margin-top: 12px;
+  margin-top: auto;
   display: grid;
   gap: 10px;
 }
@@ -478,9 +500,10 @@ watch(() => route.path, () => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(172, 194, 219, 0.28);
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
   cursor: pointer;
 }
 
@@ -511,12 +534,11 @@ watch(() => route.path, () => {
 
 .logout-btn {
   width: 100%;
-  padding: 11px 10px;
-  background-color: transparent;
+  padding: 11px 12px;
+  background-color: rgba(255, 255, 255, 0.04);
   color: #fff;
-  border: none;
-  border-top: 1px solid rgba(172, 194, 219, 0.2);
-  border-radius: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
   cursor: pointer;
   font-weight: 700;
   font-size: 16px;
@@ -546,8 +568,9 @@ watch(() => route.path, () => {
 
 .top-bar {
   background: white;
-  padding: 20px 30px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  padding: 22px 32px;
+  border-bottom: 1px solid #e7edf4;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -565,8 +588,9 @@ watch(() => route.path, () => {
 .top-bar h1 {
   margin: 0;
   color: #0a1d37;
-  font-size: 32px;
+  font-size: 30px;
   line-height: 1.1;
+  font-weight: 800;
 }
 
 .page-summary {
@@ -582,15 +606,16 @@ watch(() => route.path, () => {
 }
 
 .time {
-  color: #666;
+  color: #64748b;
   font-family: monospace;
   font-size: 14px;
+  font-weight: 700;
 }
 
 .content-area {
   flex: 1;
   min-height: 0;
-  padding: 30px;
+  padding: 28px 30px;
   overflow-y: auto;
 }
 
@@ -660,7 +685,7 @@ watch(() => route.path, () => {
   }
 
   .logo p {
-    font-size: 18px;
+    font-size: 12px;
   }
 
   .nav-menu a,

@@ -246,11 +246,11 @@ class InventoryController extends Controller
             }
 
             if (!empty($validated['from_date'])) {
-                $query->whereDate('created_at', '>=', $validated['from_date']);
+                $query->whereDate('stock_movements.created_at', '>=', $validated['from_date']);
             }
 
             if (!empty($validated['to_date'])) {
-                $query->whereDate('created_at', '<=', $validated['to_date']);
+                $query->whereDate('stock_movements.created_at', '<=', $validated['to_date']);
             }
 
             match ($sortBy) {

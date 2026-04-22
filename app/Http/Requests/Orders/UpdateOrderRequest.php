@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Orders;
 
+use App\Models\Order;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class UpdateOrderRequest extends FormRequest
 {
@@ -30,6 +32,7 @@ class UpdateOrderRequest extends FormRequest
     {
         return [
             'notes' => 'nullable|string',
+            'order_type' => 'sometimes|in:retail,wholesale',
             'fulfillment_type' => 'sometimes|in:delivery,pickup',
             'scheduled_for' => 'sometimes|nullable|date',
             'delivery_address' => 'sometimes|nullable|string|max:255',
@@ -38,5 +41,65 @@ class UpdateOrderRequest extends FormRequest
             'fulfillment_status' => 'sometimes|in:pending,in_progress,completed,cancelled',
             'delivery_status' => 'sometimes|in:pending,processing,delivered,cancelled',
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            $this->validateDeliveryAddress($validator);
+
+            if (! $this->filled('order_type')) {
+                return;
+            }
+
+            $order = Order::with('orderItems.product')->find($this->route('order'));
+
+            if (! $order) {
+                return;
+            }
+
+            $requestedOrderType = $this->input('order_type');
+
+            foreach ($order->orderItems as $item) {
+                if ($item->product?->unit_of_measure !== 'kg') {
+                    continue;
+                }
+
+                $quantity = (float) $item->quantity;
+
+                if ($requestedOrderType === 'retail' && $quantity >= 10) {
+                    $validator->errors()->add(
+                        'order_type',
+                        'Cannot set order type to retail when any item has 10kg or more.'
+                    );
+                    return;
+                }
+
+                if ($requestedOrderType === 'wholesale' && $quantity < 10) {
+                    $validator->errors()->add(
+                        'order_type',
+                        'Cannot set order type to wholesale when any item is below 10kg.'
+                    );
+                    return;
+                }
+            }
+        });
+    }
+
+    private function validateDeliveryAddress(Validator $validator): void
+    {
+        if ($this->input('fulfillment_type') !== 'delivery') {
+            return;
+        }
+
+        $order = Order::find($this->route('order'));
+        $deliveryAddress = $this->input('delivery_address', $order?->delivery_address);
+
+        if (! is_string($deliveryAddress) || trim($deliveryAddress) === '') {
+            $validator->errors()->add(
+                'delivery_address',
+                'Delivery address is required when fulfillment type is delivery.'
+            );
+        }
     }
 }

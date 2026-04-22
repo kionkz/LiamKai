@@ -108,10 +108,15 @@
         </tbody>
       </table>
 
-      <div v-if="pagination.last_page > 1" class="pagination">
-        <button class="btn btn-secondary" :disabled="pagination.current_page === 1" @click="changePage(pagination.current_page - 1)">Previous</button>
-        <span class="page-info">Page {{ pagination.current_page }} of {{ pagination.last_page }}</span>
-        <button class="btn btn-secondary" :disabled="pagination.current_page === pagination.last_page" @click="changePage(pagination.current_page + 1)">Next</button>
+      <div v-if="pagination.total > 0" class="pagination">
+        <div class="pagination-summary">
+          Showing {{ paginationStart }}-{{ paginationEnd }} of {{ pagination.total }}
+        </div>
+        <div class="pagination-controls">
+          <button class="page-btn" :disabled="pagination.current_page === 1" @click="changePage(pagination.current_page - 1)">Previous</button>
+          <span class="page-info">Page {{ pagination.current_page }} of {{ pagination.last_page }}</span>
+          <button class="page-btn" :disabled="pagination.current_page === pagination.last_page" @click="changePage(pagination.current_page + 1)">Next</button>
+        </div>
       </div>
     </div>
 
@@ -204,7 +209,8 @@ const statusFilter = ref('');
 const sortBy = ref('created_at');
 const sortDirection = ref('desc');
 const selectedOrderId = ref(null);
-const pagination = ref({ current_page: 1, last_page: 1, per_page: 20, total: 0 });
+const rowsPerPage = 10;
+const pagination = ref({ current_page: 1, last_page: 1, per_page: rowsPerPage, total: 0 });
 const counts = ref({ paid: 0, unpaid: 0, partially_paid: 0 });
 
 const showPaymentModal = ref(false);
@@ -237,6 +243,16 @@ const statCards = computed(() => [
   { key: 'partially_paid', label: 'Partially Paid', value: counts.value.partially_paid },
 ]);
 
+const paginationStart = computed(() => {
+  if (!pagination.value.total) return 0;
+  return ((pagination.value.current_page - 1) * pagination.value.per_page) + 1;
+});
+
+const paginationEnd = computed(() => Math.min(
+  pagination.value.current_page * pagination.value.per_page,
+  pagination.value.total
+));
+
 const formatCurrency = (value) => `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatMethod = (value) => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 const formatStatus = (value) => {
@@ -255,7 +271,7 @@ const fetchOrders = async (page = 1) => {
     const response = await api.get('/payments/management', {
       params: {
         page,
-        per_page: pagination.value.per_page,
+        per_page: rowsPerPage,
         search: searchQuery.value || undefined,
         status: statusFilter.value || undefined,
         sort_by: sortBy.value,
@@ -593,15 +609,48 @@ onMounted(() => {
 
 .pagination {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 14px 16px;
+  border-top: 1px solid #eef1f5;
+}
+
+.pagination-summary {
+  color: #475467;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .page-info {
+  min-width: 104px;
   font-size: 13px;
   color: #667085;
+  text-align: center;
+}
+
+.page-btn {
+  height: 36px;
+  border: 1px solid #d7deea;
+  border-radius: 8px;
+  background: #fff;
+  color: #25303d;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0 14px;
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .modal-overlay {

@@ -30,20 +30,24 @@
 
       <div class="control-group">
         <label>Sort By:</label>
-        <select v-model="sortField" data-searchable="off">
+        <select v-model="sortField" data-searchable="off" @change="resetPagination">
           <option v-for="option in sortOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
         </select>
       </div>
 
       <div class="control-group">
         <label>Order:</label>
-        <select v-model="sortDirection" data-searchable="off">
+        <select v-model="sortDirection" data-searchable="off" @change="resetPagination">
           <option value="asc">Ascending</option>
           <option value="desc">Descending</option>
         </select>
       </div>
 
-      <button @click="generateReport" class="btn btn-primary" :disabled="loading">{{ loading ? 'Generating...' : 'Generate Report' }}</button>
+      <div class="control-actions">
+        <button @click="generateReport" class="btn btn-primary" :disabled="loading">{{ loading ? 'Generating...' : 'Generate Report' }}</button>
+        <button @click="exportReport" class="btn btn-secondary" :disabled="!reportGenerated">Export PDF</button>
+        <button @click="printReport" class="btn btn-secondary" :disabled="!reportGenerated">Print</button>
+      </div>
     </div>
 
     <p v-if="successMessage" class="report-state success">{{ successMessage }}</p>
@@ -100,7 +104,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, idx) in sortedSalesData" :key="`${row.dateValue}-${idx}`">
+              <tr v-for="(row, idx) in paginatedSalesData" :key="`${row.dateValue}-${idx}`">
                 <td>{{ row.date }}</td>
                 <td>{{ row.orders }}</td>
                 <td>{{ formatPeso(row.retail) }}</td>
@@ -150,7 +154,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(method, idx) in sortedPaymentMethods" :key="`${method.method}-${idx}`">
+              <tr v-for="(method, idx) in paginatedPaymentMethods" :key="`${method.method}-${idx}`">
                 <td>{{ method.method }}</td>
                 <td>{{ method.transactions }}</td>
                 <td>{{ formatPeso(method.amount) }}</td>
@@ -201,7 +205,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(item, idx) in sortedInventoryItems" :key="`${item.sku}-${idx}`">
+              <tr v-for="(item, idx) in paginatedInventoryItems" :key="`${item.sku}-${idx}`">
                 <td>{{ item.sku }}</td>
                 <td>{{ item.name }}</td>
                 <td class="description-cell">{{ item.description || '—' }}</td>
@@ -253,7 +257,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(cust, idx) in sortedTopCustomers" :key="`${cust.name}-${idx}`">
+              <tr v-for="(cust, idx) in paginatedTopCustomers" :key="`${cust.name}-${idx}`">
                 <td>{{ cust.name }}</td>
                 <td><span class="badge" :class="cust.type">{{ cust.type }}</span></td>
                 <td>{{ cust.orders }}</td>
@@ -268,9 +272,15 @@
         </div>
       </div>
 
-      <div class="preview-actions">
-        <button @click="exportReport" class="btn btn-secondary">Export Report</button>
-        <button @click="printReport" class="btn btn-secondary">Print</button>
+      <div v-if="totalReportRows > 0" class="pagination-bar">
+        <div class="pagination-summary">
+          Showing {{ paginationStart }}-{{ paginationEnd }} of {{ totalReportRows }}
+        </div>
+        <div class="pagination-controls">
+          <button class="pagination-button" :disabled="currentPage === 1" @click="currentPage -= 1">Previous</button>
+          <span class="pagination-page">Page {{ currentPage }} of {{ totalPages }}</span>
+          <button class="pagination-button" :disabled="currentPage === totalPages" @click="currentPage += 1">Next</button>
+        </div>
       </div>
     </div>
   </div>
@@ -293,6 +303,8 @@ const successMessage = ref('');
 const errorMessage = ref('');
 const reportGenerated = ref(false);
 const generatedAt = ref(null);
+const currentPage = ref(1);
+const rowsPerPage = 10;
 
 const salesData = ref([]);
 const paymentMethods = ref([]);
@@ -421,6 +433,26 @@ const sortedPaymentMethods = computed(() => sortRows(paymentMethods.value, (row)
 const sortedInventoryItems = computed(() => sortRows(inventoryItems.value, (row) => row[sortField.value]));
 const sortedTopCustomers = computed(() => sortRows(topCustomers.value, (row) => row[sortField.value]));
 
+const currentReportRows = computed(() => {
+  if (selectedReport.value === 'sales') return sortedSalesData.value;
+  if (selectedReport.value === 'payments') return sortedPaymentMethods.value;
+  if (selectedReport.value === 'inventory') return sortedInventoryItems.value;
+  return sortedTopCustomers.value;
+});
+
+const totalReportRows = computed(() => currentReportRows.value.length);
+const totalPages = computed(() => Math.max(1, Math.ceil(totalReportRows.value / rowsPerPage)));
+const paginationStartIndex = computed(() => (currentPage.value - 1) * rowsPerPage);
+const paginationStart = computed(() => totalReportRows.value === 0 ? 0 : paginationStartIndex.value + 1);
+const paginationEnd = computed(() => Math.min(paginationStartIndex.value + rowsPerPage, totalReportRows.value));
+
+const paginateRows = (rows) => rows.slice(paginationStartIndex.value, paginationStartIndex.value + rowsPerPage);
+
+const paginatedSalesData = computed(() => paginateRows(sortedSalesData.value));
+const paginatedPaymentMethods = computed(() => paginateRows(sortedPaymentMethods.value));
+const paginatedInventoryItems = computed(() => paginateRows(sortedInventoryItems.value));
+const paginatedTopCustomers = computed(() => paginateRows(sortedTopCustomers.value));
+
 const formatPeso = (value) => `₱${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatQuantity = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -465,6 +497,7 @@ const resetPreview = () => {
   reportGenerated.value = false;
   successMessage.value = '';
   errorMessage.value = '';
+  currentPage.value = 1;
 };
 
 const handleReportTypeChange = () => {
@@ -476,6 +509,10 @@ const handleReportTypeChange = () => {
 
 const handleFilterChange = () => {
   resetPreview();
+};
+
+const resetPagination = () => {
+  currentPage.value = 1;
 };
 
 const generateReport = async () => {
@@ -499,6 +536,7 @@ const generateReport = async () => {
     applyReportData(response.data.data);
     reportGenerated.value = true;
     generatedAt.value = new Date();
+    resetPagination();
     successMessage.value = `${selectedReportLabel.value} generated.`;
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Failed to load report data';
@@ -823,6 +861,14 @@ handleReportTypeChange();
   align-items: center;
 }
 
+.control-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-left: auto;
+}
+
 .control-group {
   display: flex;
   align-items: center;
@@ -889,6 +935,11 @@ handleReportTypeChange();
 
 .btn-secondary:hover {
   background-color: #dfe7f1;
+}
+
+.btn-secondary:disabled {
+  background-color: #f1f5f9;
+  color: #94a3b8;
 }
 
 .preview-header {
@@ -1030,25 +1081,82 @@ handleReportTypeChange();
   color: #b45309;
 }
 
-.preview-actions {
+.pagination-bar {
   display: flex;
-  gap: 12px;
-  justify-content: flex-end;
-  margin-top: 18px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.pagination-summary {
+  color: #475569;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pagination-button {
+  min-width: 88px;
+  padding: 9px 12px;
+  border: 1px solid #d7deea;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #22314d;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.pagination-button:hover:not(:disabled) {
+  border-color: #e57c2a;
+  color: #cf6c20;
+}
+
+.pagination-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.pagination-page {
+  min-width: 96px;
+  color: #475569;
+  font-size: 14px;
+  text-align: center;
+  white-space: nowrap;
 }
 
 @media (max-width: 860px) {
+  .control-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .control-actions .btn {
+    flex: 1 1 150px;
+  }
+
   .preview-meta {
     text-align: left;
   }
 
-  .preview-actions {
-    justify-content: stretch;
+  .pagination-bar {
+    align-items: stretch;
     flex-direction: column;
   }
 
-  .preview-actions .btn {
+  .pagination-controls {
     width: 100%;
+  }
+
+  .pagination-button {
+    flex: 1;
   }
 }
 </style>

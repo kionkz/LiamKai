@@ -11,6 +11,22 @@
 }
 
 :root {
+    --lk-bg: #f4f6f8;
+    --lk-surface: #ffffff;
+    --lk-surface-soft: #f8fafc;
+    --lk-border: #dbe3ec;
+    --lk-border-soft: #e7edf4;
+    --lk-text: #10243e;
+    --lk-muted: #64748b;
+    --lk-muted-strong: #475569;
+    --lk-primary: #e57c2a;
+    --lk-primary-hover: #cf6c20;
+    --lk-danger: #b42318;
+    --lk-radius-sm: 8px;
+    --lk-radius: 12px;
+    --lk-radius-lg: 14px;
+    --lk-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    --lk-shadow-soft: 0 2px 8px rgba(15, 23, 42, 0.04);
     --select-border: #cfd8e3;
     --select-border-strong: #e57c2a;
     --select-text: #10243e;
@@ -23,8 +39,29 @@
     --input-radius: 12px;
 }
 
+body {
+    background: var(--lk-bg);
+    color: var(--lk-text);
+}
+
 :where(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+    min-height: 42px;
+    border: 1px solid var(--lk-border) !important;
     border-radius: var(--input-radius) !important;
+    background: var(--lk-surface) !important;
+    color: var(--lk-text) !important;
+    font-size: 14px !important;
+    line-height: 1.35 !important;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+:where(input:not([type='checkbox']):not([type='radio']), select, textarea)::placeholder {
+    color: #94a3b8;
+}
+
+:where(input:not([type='checkbox']):not([type='radio']), select, textarea):hover:not(:disabled) {
+    border-color: #b8c6d8 !important;
+    background: #fbfdff !important;
 }
 
 :where(input:not([type='checkbox']):not([type='radio']), select, textarea):focus,
@@ -33,6 +70,136 @@
     border-color: var(--select-border-strong) !important;
     box-shadow: var(--select-focus-shadow) !important;
     background: #ffffff;
+}
+
+:where(input:not([type='checkbox']):not([type='radio']), select, textarea):disabled {
+    background: #f1f5f9 !important;
+    color: #94a3b8 !important;
+    cursor: not-allowed;
+}
+
+:where(input[type='checkbox'], input[type='radio']) {
+    accent-color: var(--lk-primary);
+}
+
+:where(.btn, .btn-primary, .btn-secondary, .btn-danger, .btn-filter, .btn-clear, .filter-btn, .action-btn, .page-btn, .pagination-button, .btn-small, .btn-small-action) {
+    min-height: 40px;
+    border-radius: var(--lk-radius-sm) !important;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0;
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+:where(.btn, .btn-primary, .btn-secondary, .btn-danger, .btn-filter, .btn-clear, .filter-btn, .action-btn, .page-btn, .pagination-button, .btn-small, .btn-small-action):disabled {
+    opacity: 0.55;
+    cursor: not-allowed !important;
+    transform: none !important;
+}
+
+:where(.btn-primary, .btn-filter, .filter-btn, .action-btn.primary) {
+    background: var(--lk-primary) !important;
+    color: #ffffff !important;
+    border: 1px solid var(--lk-primary) !important;
+}
+
+:where(.btn-primary, .btn-filter, .filter-btn, .action-btn.primary):hover:not(:disabled) {
+    background: var(--lk-primary-hover) !important;
+    border-color: var(--lk-primary-hover) !important;
+}
+
+:where(.btn-secondary, .btn-clear, .page-btn, .pagination-button, .btn-small, .btn-small-action, .action-btn:not(.primary)) {
+    background: #f1f5f9 !important;
+    color: #25303d !important;
+    border: 1px solid var(--lk-border) !important;
+}
+
+:where(.btn-secondary, .btn-clear, .page-btn, .pagination-button, .btn-small, .btn-small-action, .action-btn:not(.primary)):hover:not(:disabled) {
+    background: #e8eef5 !important;
+    border-color: #cbd5e1 !important;
+}
+
+:where(.btn-danger) {
+    background: #fff1f2 !important;
+    color: var(--lk-danger) !important;
+    border: 1px solid #fecdd3 !important;
+}
+
+:where(.btn-danger):hover:not(:disabled) {
+    background: #ffe4e6 !important;
+}
+
+:where(.card, .table-card, .table-container, .table-wrap, .report-controls, .report-preview-card, .selection-bar, .actions-bar, .filters-bar, .toolbar, .modal-content, .stat-card, .metric-card) {
+    border: 1px solid var(--lk-border-soft) !important;
+    border-radius: var(--lk-radius) !important;
+    background: var(--lk-surface) !important;
+    box-shadow: var(--lk-shadow-soft) !important;
+}
+
+:where(.payments-page, .reports-container, .movements-container, .inventory-container, .employee-container, .customers-container, .orders-container, .dashboard-container, .logistics-page) {
+    color: var(--lk-text);
+}
+
+:where(.toolbar, .filters-bar, .selection-bar, .actions-bar) {
+    padding: 16px 18px !important;
+    gap: 12px !important;
+    align-items: end;
+}
+
+:where(.table-card, .table-container, .table-wrap) {
+    overflow-x: auto !important;
+}
+
+:where(label, .toolbar-field label, .filter-group label, .form-group label) {
+    color: var(--lk-muted-strong);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+:where(table) {
+    border-collapse: collapse;
+}
+
+:where(th) {
+    background: var(--lk-surface-soft) !important;
+    color: var(--lk-muted-strong) !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--lk-border-soft) !important;
+}
+
+:where(td) {
+    border-bottom: 1px solid var(--lk-border-soft) !important;
+    color: #1f2937;
+    vertical-align: middle;
+}
+
+:where(tbody tr:hover) {
+    background: #f8fafc;
+}
+
+:where(.selected-row) {
+    background: #fff7ed !important;
+}
+
+:where(.pagination, .pagination-bar) {
+    border-top: 1px solid var(--lk-border-soft);
+    background: #ffffff;
+}
+
+:where(.state-card, .table-state, .feedback, .report-state) {
+    border-radius: var(--lk-radius) !important;
+}
+
+:where(.modal-overlay) {
+    background: rgba(15, 23, 42, 0.48) !important;
+    backdrop-filter: blur(2px);
+}
+
+:where(.modal-content) {
+    overflow: hidden;
 }
 
 .choices {
