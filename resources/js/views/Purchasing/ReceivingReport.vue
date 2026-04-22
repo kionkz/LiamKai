@@ -193,6 +193,36 @@
         </div>
 
         <div class="form-section">
+          <h2>Quick Payment</h2>
+          <div class="payment-grid">
+            <div class="form-group">
+              <label>Payment Type</label>
+              <select v-model="formData.paymentMethod">
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank Transfer</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Payment Date</label>
+              <input :value="todayDate" type="date" disabled />
+            </div>
+            <div class="form-group">
+              <label>Reference No.</label>
+              <input
+                v-model="formData.paymentReference"
+                type="text"
+                :readonly="formData.paymentMethod === 'cash'"
+                :placeholder="formData.paymentMethod === 'bank_transfer' ? 'Enter bank transaction reference' : ''"
+                :required="formData.paymentMethod === 'bank_transfer'"
+              />
+            </div>
+          </div>
+          <p class="hint">
+            Payment date follows the receiving date. Cash uses a generated reference number; bank transfer uses the bank transaction reference.
+          </p>
+        </div>
+
+        <div class="form-section">
           <h2>Confirmation</h2>
           <div class="check-group">
             <input v-model="formData.inspected" type="checkbox" id="inspected" required />
@@ -276,7 +306,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 
 const todayDate = new Date().toISOString().slice(0, 10);
@@ -302,6 +332,8 @@ const formData = ref({
   inspected: false,
   storageConfirmed: false,
   recipientName: '',
+  paymentMethod: 'cash',
+  paymentReference: '',
 });
 
 // ─── Totals ──────────────────────────────────────────────────────────────────
@@ -417,6 +449,13 @@ const formatDate = (value) => {
 
 const formatStatus = (status) => String(status || '').replace(/_/g, ' ');
 
+const generatePaymentReference = (orderNumber = '') => {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const suffix = Math.random().toString(36).slice(2, 7).toUpperCase();
+  const poPart = String(orderNumber || 'PO').replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase();
+  return `POPAY-${date}-${poPart}-${suffix}`;
+};
+
 // ─── Data fetching ────────────────────────────────────────────────────────────
 const fetchPurchaseOrder = async () => {
   loading.value = true;
@@ -429,6 +468,7 @@ const fetchPurchaseOrder = async () => {
     }
 
     purchaseOrder.value = response.data.data;
+    formData.value.paymentReference = generatePaymentReference(purchaseOrder.value.order_number);
     items.value = (purchaseOrder.value.purchase_order_items || []).map((item) => {
       const ordered        = Number(item.quantity || 0);
       const alreadyReceived = Number(item.received_quantity || 0);
@@ -489,6 +529,8 @@ const doSubmitReceiving = async () => {
       damage_notes: formData.value.damageNotes,
       shortage_notes: formData.value.shortageNotes,
       notes: formData.value.notes,
+      payment_method: formData.value.paymentMethod,
+      payment_reference: formData.value.paymentReference,
       received_items: items.value
         .filter((item) => Number(item.received) > 0 || Number(item.damaged) > 0 || Number(item.short) > 0)
         .map((item) => ({
@@ -527,6 +569,18 @@ onMounted(() => {
   // Auto-fill receiving person from the authenticated session — not editable by the user.
   formData.value.recipientName =
     authStore.user?.name || authStore.user?.username || 'Unknown';
+  if (!formData.value.paymentReference) {
+    formData.value.paymentReference = generatePaymentReference();
+  }
+});
+
+watch(() => formData.value.paymentMethod, (method) => {
+  if (method === 'cash') {
+    formData.value.paymentReference = generatePaymentReference(purchaseOrder.value?.order_number);
+    return;
+  }
+
+  formData.value.paymentReference = '';
 });
 </script>
 
@@ -940,6 +994,8 @@ onMounted(() => {
 }
 
 .form-group input[type="text"],
+.form-group input[type="date"],
+.form-group select,
 .form-group textarea {
   width: 100%;
   padding: 10px;
@@ -951,10 +1007,24 @@ onMounted(() => {
 }
 
 .form-group textarea:focus,
+.form-group input[type="date"]:focus,
+.form-group select:focus,
 .form-group input[type="text"]:focus {
   outline: none;
   border-color: #e57c2a;
   box-shadow: 0 0 0 3px rgba(229, 124, 42, 0.1);
+}
+
+.form-group input:disabled,
+.form-group input[readonly] {
+  background-color: #f5f5f5;
+  color: #555;
+}
+
+.payment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 /* ── Receiving Person ───────────────────────────────────── */

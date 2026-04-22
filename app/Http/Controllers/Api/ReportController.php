@@ -284,8 +284,19 @@ class ReportController extends Controller
         $monthStart = now()->startOfMonth()->startOfDay();
         $inventoryQuantityColumn = Schema::hasColumn('inventory', 'quantity_on_hand') ? 'quantity_on_hand' : 'quantity';
 
+        $activeOrdersQuery = fn () => Order::query()
+            ->where(function ($query) {
+                $query->whereNull('fulfillment_status')
+                    ->orWhere('fulfillment_status', '!=', 'cancelled');
+            })
+            ->where(function ($query) {
+                $query->whereNull('delivery_status')
+                    ->orWhere('delivery_status', '!=', 'cancelled');
+            });
+
         $inventoryRows = Inventory::with('product:id,name,base_price')->get();
-        $recentOrders = Order::with('customer')
+        $recentOrders = $activeOrdersQuery()
+            ->with('customer')
             ->latest()
             ->limit(6)
             ->get()
@@ -324,16 +335,16 @@ class ReportController extends Controller
             'success' => true,
             'data' => [
                 'headline' => [
-                    'todaysSales' => (float) Order::whereBetween('created_at', [$todayStart, $todayEnd])->sum('total_amount'),
-                    'ordersToday' => (int) Order::whereBetween('created_at', [$todayStart, $todayEnd])->count(),
-                    'weekRevenue' => (float) Order::whereBetween('created_at', [$weekStart, now()])->sum('total_amount'),
-                    'monthRevenue' => (float) Order::whereBetween('created_at', [$monthStart, now()])->sum('total_amount'),
-                    'outstanding' => (float) Order::sum('outstanding_balance'),
+                    'todaysSales' => (float) $activeOrdersQuery()->whereBetween('created_at', [$todayStart, $todayEnd])->sum('total_amount'),
+                    'ordersToday' => (int) $activeOrdersQuery()->whereBetween('created_at', [$todayStart, $todayEnd])->count(),
+                    'weekRevenue' => (float) $activeOrdersQuery()->whereBetween('created_at', [$weekStart, now()])->sum('total_amount'),
+                    'monthRevenue' => (float) $activeOrdersQuery()->whereBetween('created_at', [$monthStart, now()])->sum('total_amount'),
+                    'outstanding' => (float) $activeOrdersQuery()->sum('outstanding_balance'),
                 ],
                 'operations' => [
-                    'pendingDeliveries' => (int) Order::whereIn('fulfillment_type', ['delivery', 'pickup'])->where('fulfillment_status', 'pending')->count(),
-                    'enRouteDeliveries' => (int) Order::where('fulfillment_status', 'in_progress')->count(),
-                    'openPurchaseOrders' => (int) PurchaseOrder::where('status', 'pending')->count(),
+                    'pendingDeliveries' => (int) $activeOrdersQuery()->whereIn('fulfillment_type', ['delivery', 'pickup'])->where('fulfillment_status', 'pending')->count(),
+                    'enRouteDeliveries' => (int) $activeOrdersQuery()->where('fulfillment_status', 'in_progress')->count(),
+                    'openPurchaseOrders' => (int) PurchaseOrder::whereIn('status', ['pending', 'partially_received'])->count(),
                     'receivedToday' => (int) PurchaseOrder::whereDate('actual_delivery_date', today())->count(),
                 ],
                 'inventory' => [

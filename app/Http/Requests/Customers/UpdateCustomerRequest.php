@@ -23,7 +23,7 @@ class UpdateCustomerRequest extends FormRequest
     {
         return [
             'name' => 'sometimes|required|string|max:255',
-            'email' => 'sometimes|required|email|unique:customers,email,' . $this->route('customer'),
+            'email' => 'sometimes|nullable|email|unique:customers,email,' . $this->route('customer'),
             'phone' => ['sometimes', 'required', 'regex:/^\+639\d{9}$/'],
             'address' => 'sometimes|required|string',
             'type' => 'sometimes|required|in:retail,wholesale',
@@ -37,6 +37,7 @@ class UpdateCustomerRequest extends FormRequest
         }
 
         $digits = preg_replace('/\D+/', '', (string) $this->input('phone'));
+        $type = strtolower((string) $this->input('type', ''));
 
         if (str_starts_with($digits, '09') && strlen($digits) === 11) {
             $digits = '63' . substr($digits, 1);
@@ -44,15 +45,22 @@ class UpdateCustomerRequest extends FormRequest
             $digits = '63' . $digits;
         }
 
-        $this->merge([
+        $updates = [
             'phone' => str_starts_with($digits, '63') ? '+' . $digits : $this->input('phone'),
-        ]);
+        ];
+
+        if ($this->has('type')) {
+            $updates['type'] = in_array($type, ['retail', 'wholesale'], true) ? $type : $this->input('type');
+        }
+
+        $this->merge($updates);
     }
 
     public function messages(): array
     {
         return [
             'phone.regex' => 'Phone number must be in Philippine format (+639XXXXXXXXX).',
+            'type.in' => 'Customer type must be Retail or Wholesale.',
         ];
     }
 }

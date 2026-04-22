@@ -23,7 +23,7 @@ class StoreCustomerRequest extends FormRequest
     {
         return [
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:customers,email',
+            'email' => 'nullable|email|unique:customers,email',
             'phone' => ['required', 'regex:/^\+639\d{9}$/'],
             'address' => 'required|string',
             'type' => 'required|in:retail,wholesale',
@@ -37,6 +37,7 @@ class StoreCustomerRequest extends FormRequest
         }
 
         $digits = preg_replace('/\D+/', '', (string) $this->input('phone'));
+        $type = strtolower((string) $this->input('type', 'retail'));
 
         if (str_starts_with($digits, '09') && strlen($digits) === 11) {
             $digits = '63' . substr($digits, 1);
@@ -46,6 +47,7 @@ class StoreCustomerRequest extends FormRequest
 
         $this->merge([
             'phone' => str_starts_with($digits, '63') ? '+' . $digits : $this->input('phone'),
+            'type' => in_array($type, ['retail', 'wholesale'], true) ? $type : $this->input('type'),
         ]);
     }
 
@@ -53,6 +55,7 @@ class StoreCustomerRequest extends FormRequest
     {
         return [
             'phone.regex' => 'Phone number must be in Philippine format (+639XXXXXXXXX).',
+            'type.in' => 'Customer type must be Retail or Wholesale.',
         ];
     }
 }

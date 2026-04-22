@@ -10,7 +10,7 @@
         <li>
           <router-link to="/" :class="{ active: activeMenu === 'dashboard' }" @click="setActiveMenu('dashboard')">
             <ClipboardList class="menu-icon" :size="18" />
-            <span class="tab-label">Dashboard</span>
+            <span class="tab-label">Operations Dashboard</span>
           </router-link>
         </li>
 
@@ -18,14 +18,14 @@
         <li v-if="authStore.hasPermission('customer-orders')" class="menu-group">
           <button class="group-head" :class="{ active: activeMenu === 'customer-group' }" type="button" @click="toggleAndActivate('customer', 'customer-group')">
             <ClipboardList class="menu-icon" :size="18" />
-            <span>Customer Orders</span>
+            <span>Sales & Customers</span>
             <span class="group-caret">{{ customerOrdersOpen ? '▾' : '▸' }}</span>
           </button>
           <div v-if="customerOrdersOpen" class="sub-links">
-            <router-link to="/customers" :class="{ active: activeMenu === 'customer-profile' }" @click="setActiveMenu('customer-profile')">Customer Profile</router-link>
-            <router-link to="/orders" :class="{ active: activeMenu === 'orders' }" @click="setActiveMenu('orders')">Order History</router-link>
-            <router-link to="/pos" :class="{ active: activeMenu === 'walk-in' }" @click="setActiveMenu('walk-in')">Walk-In</router-link>
-            <router-link to="/payments" :class="{ active: activeMenu === 'payment-management' }" @click="setActiveMenu('payment-management')">Payment Management</router-link>
+            <router-link to="/customers" :class="{ active: activeMenu === 'customer-profile' }" @click="setActiveMenu('customer-profile')">Customers</router-link>
+            <router-link to="/orders" :class="{ active: activeMenu === 'orders' }" @click="setActiveMenu('orders')">Sales Orders</router-link>
+            <router-link to="/pos" :class="{ active: activeMenu === 'walk-in' }" @click="setActiveMenu('walk-in')">Point of Sale</router-link>
+            <router-link to="/payments" :class="{ active: activeMenu === 'payment-management' }" @click="setActiveMenu('payment-management')">Collections</router-link>
           </div>
         </li>
 
@@ -33,13 +33,13 @@
         <li v-if="authStore.hasPermission('inventory')" class="menu-group">
           <button class="group-head" :class="{ active: activeMenu === 'inventory-group' }" type="button" @click="toggleAndActivate('inventory', 'inventory-group')">
             <Boxes class="menu-icon" :size="18" />
-            <span>Inventory</span>
+            <span>Inventory Control</span>
             <span class="group-caret">{{ inventoryOpen ? '▾' : '▸' }}</span>
           </button>
           <div v-if="inventoryOpen" class="sub-links">
-            <router-link to="/inventory" :class="{ active: activeMenu === 'current-stock' }" @click="setActiveMenu('current-stock')">Current Stock</router-link>
-            <router-link to="/inventory/categories" :class="{ active: activeMenu === 'inventory-categories' }" @click="setActiveMenu('inventory-categories')">Categories</router-link>
-            <router-link to="/inventory/movements" :class="{ active: activeMenu === 'stock-movement' }" @click="setActiveMenu('stock-movement')">Stock Movement</router-link>
+            <router-link to="/inventory" :class="{ active: activeMenu === 'current-stock' }" @click="setActiveMenu('current-stock')">Stock On Hand</router-link>
+            <router-link to="/inventory/categories" :class="{ active: activeMenu === 'inventory-categories' }" @click="setActiveMenu('inventory-categories')">Product Categories</router-link>
+            <router-link to="/inventory/movements" :class="{ active: activeMenu === 'stock-movement' }" @click="setActiveMenu('stock-movement')">Inventory Audit</router-link>
           </div>
         </li>
 
@@ -51,8 +51,8 @@
             <span class="group-caret">{{ purchasingOpen ? '▾' : '▸' }}</span>
           </button>
           <div v-if="purchasingOpen" class="sub-links">
-            <router-link to="/purchasing" :class="{ active: activeMenu === 'suppliers-profile' }" @click="setActiveMenu('suppliers-profile')">Suppliers Profile</router-link>
-            <router-link to="/reports" :class="{ active: activeMenu === 'sales-report' }" @click="setActiveMenu('sales-report')">Reports</router-link>
+            <router-link to="/purchasing" :class="{ active: activeMenu === 'suppliers-profile' }" @click="setActiveMenu('suppliers-profile')">Purchase Orders</router-link>
+            <router-link to="/reports" :class="{ active: activeMenu === 'sales-report' }" @click="setActiveMenu('sales-report')">Reports & Analytics</router-link>
           </div>
         </li>
 
@@ -60,7 +60,7 @@
         <li v-if="authStore.hasPermission('logistics')">
           <router-link to="/deliveries" :class="{ active: activeMenu === 'logistics' }" @click="setActiveMenu('logistics')">
             <MapPinned class="menu-icon" :size="18" />
-            <span class="tab-label">Logistics</span>
+            <span class="tab-label">Order Fulfillment</span>
           </router-link>
         </li>
 
@@ -68,7 +68,7 @@
         <li v-if="authStore.hasPermission('employees')">
           <router-link to="/employees" :class="{ active: activeMenu === 'employees' }" @click="setActiveMenu('employees')">
             <Users class="menu-icon" :size="18" />
-            <span class="tab-label">Employee</span>
+            <span class="tab-label">Employees & Accounts</span>
           </router-link>
         </li>
       </ul>
@@ -256,22 +256,22 @@ const syncGroupByRoute = () => {
 
 const pageTitle = computed(() => {
   const titles = {
-    'Dashboard': 'Dashboard',
-    'OrdersList': 'Order History',
+    'Dashboard': 'Operations Dashboard',
+    'OrdersList': 'Sales Orders',
     'CreateOrder': 'Create Order',
-    'PaymentManagement': 'Payment Management',
+    'PaymentManagement': 'Collections',
     'CustomerList': 'Customers',
     'CustomerProfile': 'Customer Profile',
-    'POSScreen': 'Walk-in POS',
-    'DeliveryList': 'Logistics',
-    'DeliveryDetails': 'Delivery Details',
-    'PurchasingDashboard': 'Purchasing',
+    'POSScreen': 'Point of Sale',
+    'DeliveryList': 'Order Fulfillment',
+    'DeliveryDetails': 'Fulfillment Details',
+    'PurchasingDashboard': 'Purchase Orders',
     'CreatePurchaseOrder': 'Create Purchase Order',
     'ReceivingReport': 'Receiving Report',
-    'InventoryView': 'Current Stock',
-    'CategoriesView': 'Categories',
-    'StockMovement': 'Stock Movements',
-    'EmployeeManagement': 'Employee Management',
+    'InventoryView': 'Stock On Hand',
+    'CategoriesView': 'Product Categories',
+    'StockMovement': 'Inventory Audit',
+    'EmployeeManagement': 'Employees & Accounts',
     'ProfilePage': 'My Profile',
     'ReportsPage': 'Reports & Analytics'
   };
@@ -281,21 +281,21 @@ const pageTitle = computed(() => {
 const pageSummary = computed(() => {
   const summaries = {
     Dashboard: 'Live operational metrics across sales, inventory, logistics, and purchasing.',
-    OrdersList: 'Review order history, open the create-order modal, and manage fulfillment scheduling from one screen.',
+    OrdersList: 'Review sales orders, create new orders, and manage fulfillment scheduling from one screen.',
     CreateOrder: 'Create customer orders with customer-driven pricing, item quantities, and logistics scheduling.',
-    PaymentManagement: 'Track paid, unpaid, and partially paid orders while recording collections and balances.',
+    PaymentManagement: 'Track paid, unpaid, and partially paid orders while recording customer collections.',
     CustomerList: 'Manage customer records and relationship details.',
     CustomerProfile: 'View customer history, orders, and contact information.',
     POSScreen: 'Process walk-in sales with live product and stock data.',
-    DeliveryList: 'Review daily delivery and pickup schedules, then update fulfillment progress.',
-    DeliveryDetails: 'Inspect delivery execution and order fulfillment details.',
-    PurchasingDashboard: 'Monitor suppliers, open purchase orders, and receiving.',
+    DeliveryList: 'Review delivery and pickup schedules, then update order fulfillment progress.',
+    DeliveryDetails: 'Inspect delivery, pickup, and order fulfillment details.',
+    PurchasingDashboard: 'Monitor suppliers, purchase orders, and receiving.',
     CreatePurchaseOrder: 'Create supplier purchase orders from current inventory demand.',
     ReceivingReport: 'Confirm received stock, defects, and shortages against a purchase order.',
-    InventoryView: 'Review current stock levels, reorder points, and adjustments.',
+    InventoryView: 'Review stock on hand, reorder points, and adjustments.',
     CategoriesView: 'Create, edit, and maintain the product categories used across inventory and product management.',
     StockMovement: 'Audit every inbound, outbound, defect, and manual stock event.',
-    EmployeeManagement: 'Maintain employee records and assignments.',
+    EmployeeManagement: 'Maintain employee records, roles, and user accounts.',
     ProfilePage: 'Update account identity and access information.',
     ReportsPage: 'Analyze sales, payments, inventory, and customer performance'
   };

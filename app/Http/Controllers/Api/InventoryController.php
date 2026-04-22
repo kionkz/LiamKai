@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\StockMovement;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class InventoryController extends Controller
@@ -23,7 +24,7 @@ class InventoryController extends Controller
             $sortDirection = strtolower((string) $request->input('sort_direction', 'asc')) === 'desc' ? 'desc' : 'asc';
             $productHasSku = Schema::hasColumn('products', 'sku');
 
-            $inventory = Inventory::with('product.productCategory', 'product.pricing', 'product.pricingLogs', 'stockMovements')
+            $inventory = Inventory::with('product.productCategory', 'product.pricing', 'product.pricingLogs.changedByUser', 'stockMovements')
                 ->leftJoin('products', 'products.id', '=', 'inventory.product_id')
                 ->select('inventory.*')
                 ->when($sortBy === 'product_name', fn ($query) => $query->orderBy('products.name', $sortDirection))
@@ -73,12 +74,15 @@ class InventoryController extends Controller
     {
         try {
             $inventory = Inventory::where('product_id', $id)
-                ->with('product.productCategory', 'product.pricing', 'product.pricingLogs', 'stockMovements')
+                ->with('product.productCategory', 'product.pricing', 'product.pricingLogs.changedByUser', 'stockMovements.performedByUser', 'stockMovements.sourceBatch')
                 ->firstOrFail();
             
             return response()->json([
                 'success' => true,
-                'data' => $inventory
+                'data' => [
+                    ...$inventory->toArray(),
+                    'available_batches' => $this->availableBatches((int) $id),
+                ],
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -101,6 +105,8 @@ class InventoryController extends Controller
     {
         try {
             $validated = $request->validate([
+                'action_type' => 'sometimes|required|in:stock_out,manual_adjustment',
+                'batch_id' => 'required_with:adjustment_quantity|nullable|integer|exists:stock_movements,id',
                 'reorder_point' => 'sometimes|required|numeric|min:0',
                 'adjustment_quantity' => 'sometimes|numeric|min:0',
                 'adjustment_reason' => 'required_with:adjustment_quantity|in:damage,theft',
@@ -119,48 +125,78 @@ class InventoryController extends Controller
                 $adjustmentQty = (float) $validated['adjustment_quantity'];
                 
                 if ($adjustmentQty > 0) {
-                    $currentQuantity = (float) ($inventory->quantity_on_hand ?? $inventory->quantity ?? 0);
+                    $deductionError = null;
 
-                    if ($adjustmentQty > $currentQuantity) {
+                    DB::transaction(function () use (&$deductionError, $inventory, $validated, $adjustmentQty) {
+                        $batch = StockMovement::query()
+                            ->where('product_id', $inventory->product_id)
+                            ->where('type', 'stock_in')
+                            ->where('movement_type', 'purchase_receipt')
+                            ->where('id', $validated['batch_id'] ?? 0)
+                            ->lockForUpdate()
+                            ->first();
+
+                        if (!$batch) {
+                            $deductionError = 'Please select a valid received stock batch.';
+                            return;
+                        }
+
+                        $availableInBatch = (float) ($batch->remaining_quantity ?? $batch->quantity ?? 0);
+
+                        if ($adjustmentQty > $availableInBatch) {
+                            $deductionError = 'Adjustment quantity cannot exceed the selected batch available stock.';
+                            return;
+                        }
+
+                        $movementLabels = [
+                            'damage' => 'Damage/Defect',
+                            'theft' => 'Theft/Loss',
+                        ];
+                        $movementType = $validated['adjustment_reason'] === 'damage' ? 'adjustment' : 'stock_out';
+                        $movementNotes = $movementLabels[$validated['adjustment_reason']] ?? $validated['adjustment_reason'];
+
+                        if (!empty($validated['adjustment_note'])) {
+                            $movementNotes .= ' | ' . $validated['adjustment_note'];
+                        }
+
+                        $batch->forceFill([
+                            'remaining_quantity' => max(0, (float) ($batch->remaining_quantity ?? $batch->quantity ?? 0) - $adjustmentQty),
+                        ])->save();
+
+                        $inventory->stockMovements()->create([
+                            'type' => $movementType,
+                            'quantity' => abs($adjustmentQty),
+                            'movement_type' => $validated['adjustment_reason'] === 'damage' ? 'defect' : 'theft',
+                            'reason' => $movementLabels[$validated['adjustment_reason']] ?? $validated['adjustment_reason'],
+                            'reference' => 'BATCH-ADJUSTMENT',
+                            'reference_id' => $batch->id,
+                            'source_stock_movement_id' => $batch->id,
+                            'performed_by_user_id' => auth()->id(),
+                            'expiration_date' => $batch->expiration_date,
+                            'notes' => $movementNotes,
+                        ]);
+
+                        $inventory->syncQuantityFromBatches();
+                    });
+
+                    if ($deductionError) {
                         return response()->json([
                             'success' => false,
-                            'message' => 'Adjustment quantity cannot exceed current stock.'
+                            'message' => $deductionError,
                         ], 422);
                     }
-
-                    $inventory->applyQuantityDelta(-$adjustmentQty);
-                    $movementType = $validated['adjustment_reason'] === 'damage' ? 'adjustment' : 'stock_out';
                 } else {
                     return response()->json([
                         'success' => false,
                         'message' => 'Adjustment quantity cannot be zero'
                     ], 422);
                 }
-                
-                // Record stock movement
-                $movementLabels = [
-                    'damage' => 'Damage/Defect',
-                    'theft' => 'Theft/Loss',
-                ];
-                $movementNotes = $movementLabels[$validated['adjustment_reason']] ?? $validated['adjustment_reason'];
-                if (!empty($validated['adjustment_note'])) {
-                    $movementNotes .= ' | ' . $validated['adjustment_note'];
-                }
-
-                $inventory->stockMovements()->create([
-                    'type' => $movementType,
-                    'quantity' => abs($adjustmentQty),
-                    'movement_type' => $validated['adjustment_reason'] === 'damage' ? 'defect' : 'theft',
-                    'reason' => $movementLabels[$validated['adjustment_reason']] ?? $validated['adjustment_reason'],
-                    'reference' => 'MANUAL-ADJUSTMENT',
-                    'notes' => $movementNotes,
-                ]);
             }
             
             return response()->json([
                 'success' => true,
                 'message' => 'Inventory updated successfully',
-                'data' => $inventory->fresh(['product.productCategory', 'product.pricing', 'product.pricingLogs', 'stockMovements'])
+                'data' => $inventory->fresh(['product.productCategory', 'product.pricing', 'product.pricingLogs.changedByUser', 'stockMovements.performedByUser'])
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -238,7 +274,7 @@ class InventoryController extends Controller
             $sortBy = $validated['sort_by'] ?? 'created_at';
             $sortDirection = $validated['sort_direction'] ?? 'desc';
 
-            $query = StockMovement::with('product')
+            $query = StockMovement::with('product', 'performedByUser', 'sourceBatch')
                 ->leftJoin('products', 'products.id', '=', 'stock_movements.product_id')
                 ->select('stock_movements.*');
 
@@ -295,5 +331,34 @@ class InventoryController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function availableBatches(int $productId): array
+    {
+        if (!Schema::hasColumn('stock_movements', 'remaining_quantity')) {
+            return [];
+        }
+
+        return StockMovement::with('performedByUser')
+            ->where('product_id', $productId)
+            ->where('type', 'stock_in')
+            ->where('movement_type', 'purchase_receipt')
+            ->where('remaining_quantity', '>', 0)
+            ->orderByRaw('expiration_date IS NULL')
+            ->orderBy('expiration_date')
+            ->orderBy('created_at')
+            ->get()
+            ->map(fn (StockMovement $batch) => [
+                'id' => $batch->id,
+                'available_quantity' => (float) $batch->remaining_quantity,
+                'original_quantity' => (float) $batch->quantity,
+                'expiration_date' => $batch->expiration_date?->toDateString(),
+                'date_added' => $batch->created_at?->toIso8601String(),
+                'reference' => $batch->reference,
+                'expired' => (bool) $batch->expired || ($batch->expiration_date && $batch->expiration_date->isPast()),
+                'received_by' => $batch->performedByUser?->name,
+            ])
+            ->values()
+            ->all();
     }
 }

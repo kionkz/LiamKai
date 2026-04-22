@@ -163,7 +163,7 @@ Route::get('/health', function () {
 
     return response()->json([
         'status'  => 'ok',
-        'version' => '1.0.0',  // optional, but matches your Postman tests
-        'uptime'  => $uptime,  // optional
+        'version' => '1.0.0',
+        'uptime'  => $uptime,
     ]);
 });

@@ -21,6 +21,9 @@ class Order extends Model
         'delivery_address',
         'delivery_date',
         'scheduled_for',
+        'actual_fulfillment_at',
+        'fulfillment_action',
+        'fulfillment_updated_by_user_id',
         'notes',
     ];
 
@@ -29,12 +32,18 @@ class Order extends Model
         'outstanding_balance' => 'decimal:2',
         'delivery_date' => 'date',
         'scheduled_for' => 'datetime',
+        'actual_fulfillment_at' => 'datetime',
     ];
 
     // Relationships
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function fulfillmentUpdatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'fulfillment_updated_by_user_id');
     }
 
     public function orderItems(): HasMany

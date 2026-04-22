@@ -300,6 +300,14 @@
               <label>Received By:</label>
               <span>{{ viewingPO.received_by || 'N/A' }}</span>
             </div>
+            <div class="detail-row" v-if="viewingPO.status === 'received'">
+              <label>Payment Type:</label>
+              <span>{{ latestPurchasePayment(viewingPO) ? formatStatus(latestPurchasePayment(viewingPO).payment_method) : 'N/A' }}</span>
+            </div>
+            <div class="detail-row" v-if="viewingPO.status === 'received' && latestPurchasePayment(viewingPO)">
+              <label>Payment Ref:</label>
+              <span>{{ latestPurchasePayment(viewingPO).reference || 'N/A' }}</span>
+            </div>
             <div class="detail-row">
               <label>Notes:</label>
               <span>{{ viewingPO.notes || 'N/A' }}</span>
@@ -623,6 +631,16 @@ const receivePO = (po = selectedPurchaseOrder.value) => {
 
 const formatCurrency = (value) => `₱${Number(value || 0).toFixed(2)}`;
 
+const latestPurchasePayment = (po) => {
+  const payments = po?.payments || [];
+  if (!payments.length) return null;
+  return [...payments].sort((a, b) => {
+    const aDate = new Date(a.payment_date || a.created_at || 0).getTime();
+    const bDate = new Date(b.payment_date || b.created_at || 0).getTime();
+    return bDate - aDate;
+  })[0];
+};
+
 const exportPurchaseReceipt = async (po = selectedPurchaseOrder.value) => {
   if (!po || po.status !== 'received') return;
 
@@ -639,6 +657,7 @@ const exportPurchaseReceipt = async (po = selectedPurchaseOrder.value) => {
   }
 
   const items = purchaseOrder.purchase_order_items || [];
+  const payment = latestPurchasePayment(purchaseOrder);
   exportReceiptPdf({
     title: `Purchase Receipt ${purchaseOrder.order_number || `PO #${purchaseOrder.id}`}`,
     subtitle: 'Supplier Purchase Order Receipt',
@@ -649,6 +668,9 @@ const exportPurchaseReceipt = async (po = selectedPurchaseOrder.value) => {
       { label: 'Order Date', value: formatDate(purchaseOrder.order_date) },
       { label: 'Received Date', value: formatDate(purchaseOrder.actual_delivery_date) },
       { label: 'Received By', value: purchaseOrder.received_by || 'N/A' },
+      { label: 'Payment Type', value: payment ? formatStatus(payment.payment_method) : 'N/A' },
+      { label: 'Payment Date', value: payment ? formatDate(payment.payment_date) : formatDate(purchaseOrder.actual_delivery_date) },
+      { label: 'Payment Ref', value: payment?.reference || 'N/A' },
     ],
     items: items.map((item) => {
       const quantity = Number(item.quantity || 0);

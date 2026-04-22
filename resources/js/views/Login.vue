@@ -78,15 +78,10 @@ const showPassword = ref(false);
 const handleLogin = async () => {
   error.value = '';
   loading.value = true;
-  
-  console.log('Login attempt with:', form.value.username);
 
   const result = await authStore.login(form.value.username, form.value.password);
-  
-  console.log('Login result:', result);
 
   if (result.success) {
-    console.log('Login successful, redirecting to home');
     if (result.mustChangePassword) {
       router.push('/change-password');
     } else {

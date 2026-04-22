@@ -10,6 +10,7 @@ class Payment extends Model
     protected $fillable = [
         'order_id',
         'purchase_order_id',
+        'recorded_by_user_id',
         'amount',
         'payment_method',
         'payment_date',
@@ -31,6 +32,11 @@ class Payment extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function recordedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recorded_by_user_id');
     }
 
     public function purchaseOrder(): BelongsTo

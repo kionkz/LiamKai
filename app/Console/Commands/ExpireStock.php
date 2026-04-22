@@ -43,10 +43,13 @@ class ExpireStock extends Command
                     continue;
                 }
 
-                $qty = (float) $batch->quantity;
+                $qty = (float) ($batch->remaining_quantity ?? $batch->quantity);
 
-                // Deduct from inventory (floor at 0)
-                $inventory->applyQuantityDelta(-$qty);
+                if ($qty <= 0) {
+                    $batch->update(['expired' => true, 'remaining_quantity' => 0]);
+                    DB::commit();
+                    continue;
+                }
 
                 // Record as stock_out / expired
                 StockMovement::create([
@@ -57,13 +60,15 @@ class ExpireStock extends Command
                     'reason'         => 'Stock expired',
                     'reference'      => $batch->reference,
                     'reference_id'   => $batch->reference_id,
+                    'source_stock_movement_id' => $batch->id,
                     'notes'          => "Expired batch from {$batch->expiration_date->toDateString()} — automatically recorded as loss",
                     'expiration_date'=> $batch->expiration_date,
                     'expired'        => true,
                 ]);
 
                 // Mark original batch as processed
-                $batch->update(['expired' => true]);
+                $batch->update(['expired' => true, 'remaining_quantity' => 0]);
+                $inventory->syncQuantityFromBatches();
 
                 DB::commit();
                 $count++;

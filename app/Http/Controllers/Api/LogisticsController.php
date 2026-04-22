@@ -24,6 +24,7 @@ class LogisticsController extends Controller
             'date_to' => ['sometimes', 'date'],
             'include_all' => ['sometimes', 'boolean'],
             'search' => ['sometimes', 'string', 'max:255'],
+            'fulfillment_type' => ['sometimes', 'in:delivery,pickup'],
             'status' => ['sometimes', 'in:pending,in_progress,completed'],
             'sort_by' => ['sometimes', 'in:id,scheduled_for,created_at,total_amount,status'],
             'sort_direction' => ['sometimes', 'in:asc,desc'],
@@ -45,6 +46,10 @@ class LogisticsController extends Controller
         $baseQuery = Order::query()
             ->whereIn('fulfillment_type', ['delivery', 'pickup'])
             ->where('fulfillment_status', '!=', 'cancelled');
+
+        if (!empty($validated['fulfillment_type'])) {
+            $baseQuery->where('fulfillment_type', $validated['fulfillment_type']);
+        }
 
         if (!$includeAll) {
             if ($dateFrom && $dateTo) {
@@ -83,7 +88,7 @@ class LogisticsController extends Controller
         }
 
         $orders = (clone $baseQuery)
-            ->with('customer')
+            ->with('customer', 'fulfillmentUpdatedBy')
             ->orderByRaw('scheduled_for IS NULL')
             ->orderBy($sortBy, $sortDirection)
             ->orderBy('id', $sortDirection)
@@ -97,7 +102,14 @@ class LogisticsController extends Controller
                 'fulfillment_type' => $order->fulfillment_type,
                 'delivery_address' => $order->delivery_address,
                 'scheduled_for'    => $order->scheduled_for?->toIso8601String(),
+                'actual_fulfillment_at' => $order->actual_fulfillment_at?->toIso8601String(),
                 'status'           => $order->fulfillment_status,
+                'fulfillment_action' => $order->fulfillment_action,
+                'fulfillment_updated_by' => $order->fulfillmentUpdatedBy ? [
+                    'id' => $order->fulfillmentUpdatedBy->id,
+                    'name' => $order->fulfillmentUpdatedBy->name,
+                    'username' => $order->fulfillmentUpdatedBy->username,
+                ] : null,
                 'order_date'       => $order->created_at?->toDateString(),
                 'total_amount'     => (float) $order->total_amount,
             ];
@@ -133,6 +145,7 @@ class LogisticsController extends Controller
     {
         $validated = $request->validate([
             'status' => ['required', 'in:pending,in_progress,completed'],
+            'actual_fulfillment_at' => ['sometimes', 'nullable', 'date'],
         ]);
 
         if ($order->fulfillment_status === 'cancelled') {
@@ -149,12 +162,21 @@ class LogisticsController extends Controller
             ], 422);
         }
 
-        if ($order->fulfillment_status === 'pending' && $validated['status'] === 'completed') {
+        if (
+            $order->fulfillment_type !== 'pickup'
+            && $order->fulfillment_status === 'pending'
+            && $validated['status'] === 'completed'
+        ) {
             return response()->json([
                 'success' => false,
                 'message' => 'Move the order to en-route before marking it completed.',
             ], 422);
         }
+
+        $completedAt = $validated['status'] === 'completed'
+            ? Carbon::parse($validated['actual_fulfillment_at'] ?? now())
+            : null;
+        $action = $this->resolveFulfillmentAction($order->fulfillment_type, $validated['status']);
 
         $order->update([
             'fulfillment_status' => $validated['status'],
@@ -163,7 +185,13 @@ class LogisticsController extends Controller
                 'completed' => 'delivered',
                 default => 'pending',
             },
+            'delivery_date' => $completedAt?->toDateString(),
+            'actual_fulfillment_at' => $completedAt,
+            'fulfillment_action' => $action,
+            'fulfillment_updated_by_user_id' => $request->user()?->id,
         ]);
+
+        $order->load('fulfillmentUpdatedBy');
 
         return response()->json([
             'success' => true,
@@ -172,7 +200,28 @@ class LogisticsController extends Controller
                 'id' => $order->id,
                 'status' => $order->fulfillment_status,
                 'delivery_status' => $order->delivery_status,
+                'delivery_date' => $order->delivery_date?->toDateString(),
+                'actual_fulfillment_at' => $order->actual_fulfillment_at?->toIso8601String(),
+                'fulfillment_action' => $order->fulfillment_action,
+                'fulfillment_updated_by' => $order->fulfillmentUpdatedBy ? [
+                    'id' => $order->fulfillmentUpdatedBy->id,
+                    'name' => $order->fulfillmentUpdatedBy->name,
+                    'username' => $order->fulfillmentUpdatedBy->username,
+                ] : null,
             ],
         ]);
+    }
+
+    private function resolveFulfillmentAction(string $fulfillmentType, string $status): string
+    {
+        if ($status === 'completed') {
+            return $fulfillmentType === 'pickup' ? 'marked picked up' : 'marked delivered';
+        }
+
+        if ($status === 'in_progress') {
+            return $fulfillmentType === 'pickup' ? 'marked ready for pickup' : 'marked en-route';
+        }
+
+        return 'marked pending';
     }
 }

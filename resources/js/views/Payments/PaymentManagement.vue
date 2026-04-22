@@ -174,6 +174,7 @@
               <th>Method</th>
               <th>Details</th>
               <th>Reference</th>
+              <th>Recorded By</th>
               <th>Amount</th>
             </tr>
           </thead>
@@ -183,6 +184,7 @@
               <td>{{ formatMethod(payment.payment_method) }}</td>
               <td>{{ payment.bank_name || '--' }}</td>
               <td>{{ payment.reference || '--' }}</td>
+              <td>{{ formatUser(payment.recorded_by) }}</td>
               <td>{{ formatCurrency(payment.amount) }}</td>
             </tr>
           </tbody>
@@ -255,6 +257,7 @@ const paginationEnd = computed(() => Math.min(
 
 const formatCurrency = (value) => `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatMethod = (value) => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+const formatUser = (user) => user?.name || user?.username || '--';
 const formatStatus = (value) => {
   if (value === 'partially_paid') return 'Partially Paid';
   if (value === 'utang') return 'Partially Paid';
@@ -658,17 +661,30 @@ onMounted(() => {
   inset: 0;
   background: rgba(12, 21, 37, 0.45);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 120;
-  padding: 16px;
+  padding: 70px 16px 24px;
+  overflow-y: auto;
 }
 
 .modal-content {
+  position: relative;
   background: #fff;
   border-radius: 12px;
   width: min(620px, 100%);
   padding: 20px;
+  overflow: visible;
+  z-index: 121;
+}
+
+.modal-content :deep(.searchable-select) {
+  z-index: 130;
+}
+
+.modal-content :deep(.dropdown-panel) {
+  z-index: 140;
+  max-height: 220px;
 }
 
 .modal-summary {

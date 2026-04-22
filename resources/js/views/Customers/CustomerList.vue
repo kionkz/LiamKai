@@ -9,7 +9,6 @@
         <button @click="showNewCustomerForm = true" class="btn btn-primary">New Customer</button>
         <button @click="viewSelectedCustomer" class="btn btn-secondary" :disabled="!selectedCustomer">View</button>
         <button @click="openEditSelectedCustomer" class="btn btn-secondary" :disabled="!selectedCustomer">Edit</button>
-        <button @click="openDeleteSelectedCustomer" class="btn btn-danger" :disabled="!selectedCustomer">Delete</button>
       </div>
     </div>
 
@@ -109,7 +108,7 @@
     <div v-if="showNewCustomerForm" class="modal-overlay" @click="closeModal">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h2>{{ editingCustomer ? 'Edit Customer' : 'Add New Customer' }}</h2>
+          <h2>Add New Customer</h2>
           <button @click="closeModal" class="btn-close">×</button>
         </div>
         <form @submit.prevent="saveCustomer" class="modal-form">
@@ -119,8 +118,8 @@
           </div>
 
           <div class="form-group">
-            <label for="email">Email *</label>
-            <input v-model="customerForm.email" type="email" id="email" placeholder="Enter email address" required />
+            <label for="email">Email</label>
+            <input v-model="customerForm.email" type="email" id="email" placeholder="Enter email address" />
           </div>
 
           <div class="form-group">
@@ -149,27 +148,13 @@
           <div class="modal-actions">
             <button type="button" @click="closeModal" class="btn btn-secondary">Cancel</button>
             <button type="submit" :disabled="saving" class="btn btn-primary">
-              {{ saving ? 'Saving...' : (editingCustomer ? 'Update Customer' : 'Add Customer') }}
+              {{ saving ? 'Saving...' : 'Add Customer' }}
             </button>
           </div>
         </form>
       </div>
     </div>
 
-    <!-- Delete Confirmation Modal -->
-    <div v-if="showDeleteConfirm" class="modal-overlay" @click="showDeleteConfirm = false">
-      <div class="modal-content small-modal" @click.stop>
-        <h3>Confirm Delete</h3>
-        <p>Are you sure you want to delete "{{ customerToDelete?.name }}"?</p>
-        <p class="warning">This action cannot be undone.</p>
-        <div class="modal-actions">
-          <button @click="showDeleteConfirm = false" class="btn btn-secondary">Cancel</button>
-          <button @click="confirmDelete" :disabled="deleting" class="btn btn-danger">
-            {{ deleting ? 'Deleting...' : 'Delete' }}
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -177,6 +162,7 @@
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
+import { getApiErrorMessage } from '../../utils/orderValidation';
 
 const router = useRouter();
 
@@ -184,11 +170,7 @@ const customers = ref([]);
 const loading = ref(false);
 const error = ref('');
 const showNewCustomerForm = ref(false);
-const showDeleteConfirm = ref(false);
 const saving = ref(false);
-const deleting = ref(false);
-const editingCustomer = ref(null);
-const customerToDelete = ref(null);
 const selectedCustomerId = ref(null);
 const searchQuery = ref('');
 const sortBy = ref('name');
@@ -230,15 +212,8 @@ const viewSelectedCustomer = () => {
 
 const openEditSelectedCustomer = () => {
   if (!selectedCustomer.value) return;
-  editCustomer(selectedCustomer.value);
+  router.push({ path: `/customers/${selectedCustomer.value.id}`, query: { edit: '1' } });
 };
-
-const openDeleteSelectedCustomer = () => {
-  if (!selectedCustomer.value) return;
-  deleteCustomer(selectedCustomer.value);
-};
-
-
 
 const fetchCustomers = async (page = 1) => {
   loading.value = true;
@@ -287,14 +262,9 @@ const saveCustomer = async () => {
   try {
     normalizePhoneField();
 
-    const payload = { ...customerForm.value };
+    const payload = { ...customerForm.value, email: customerForm.value.email || null };
 
-    let response;
-    if (editingCustomer.value) {
-      response = await api.put(`/customers/${editingCustomer.value.id}`, payload);
-    } else {
-      response = await api.post('/customers', payload);
-    }
+    const response = await api.post('/customers', payload);
 
     if (response.data.success) {
       await fetchCustomers(pagination.value.current_page);
@@ -303,55 +273,14 @@ const saveCustomer = async () => {
       alert(response.data.message || 'Failed to save customer');
     }
   } catch (err) {
-    alert(err.response?.data?.message || 'Failed to save customer');
+    alert(getApiErrorMessage(err, 'Failed to save customer'));
   } finally {
     saving.value = false;
   }
 };
 
-const editCustomer = (customer) => {
-  editingCustomer.value = customer;
-  // Map backend fields into the form shape
-  customerForm.value = {
-    name: customer.name || '',
-    email: customer.email || '',
-    phone: customer.phone || '',
-    address: customer.address || '',
-    type: customer.type || 'retail',
-    credit_limit: customer.credit_limit || 0
-  };
-  showNewCustomerForm.value = true;
-};
-
-const deleteCustomer = (customer) => {
-  customerToDelete.value = customer;
-  showDeleteConfirm.value = true;
-};
-
-const confirmDelete = async () => {
-  deleting.value = true;
-  try {
-    const response = await api.delete(`/customers/${customerToDelete.value.id}`);
-    if (response.data.success) {
-      const targetPage = customers.value.length === 1 && pagination.value.current_page > 1
-        ? pagination.value.current_page - 1
-        : pagination.value.current_page;
-      await fetchCustomers(targetPage);
-      showDeleteConfirm.value = false;
-      customerToDelete.value = null;
-    } else {
-      alert(response.data.message || 'Failed to delete customer');
-    }
-  } catch (err) {
-    alert(err.response?.data?.message || 'Failed to delete customer');
-  } finally {
-    deleting.value = false;
-  }
-};
-
 const closeModal = () => {
   showNewCustomerForm.value = false;
-  editingCustomer.value = null;
   customerForm.value = {
     name: '',
     email: '',

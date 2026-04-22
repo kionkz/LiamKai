@@ -58,13 +58,14 @@
           <th>Quantity</th>
           <th>Expiration Date</th>
           <th>Reference</th>
+          <th>Updated By</th>
           <th>Reason</th>
           <th>Notes</th>
         </tr>
       </thead>
       <tbody>
         <tr v-if="displayedMovements.length === 0">
-          <td colspan="8" class="no-data">No stock movements found for selected filters.</td>
+          <td colspan="9" class="no-data">No stock movements found for selected filters.</td>
         </tr>
         <tr v-for="movement in displayedMovements" :key="movement.id" :class="['movement-row', movement.badgeClass]">
           <td>{{ formatDate(movement.created_at) }}</td>
@@ -75,6 +76,7 @@
           <td class="quantity" :class="movement.badgeClass">{{ getQuantityDisplay(movement) }}</td>
           <td>{{ movement.expiration_date ? formatExpirationDate(movement.expiration_date) : '—' }}</td>
           <td>{{ movement.reference || '—' }}</td>
+          <td>{{ movement.performed_by || '—' }}</td>
           <td>{{ movement.reason || '—' }}</td>
           <td class="notes">{{ movement.notes || '—' }}</td>
         </tr>
@@ -150,6 +152,7 @@ const fetchMovements = async () => {
       movement_type: m.movement_type,
       quantity: Number(m.quantity || 0),
       reference: m.reference,
+      performed_by: m.performed_by_user?.name || m.performed_by_user?.username || null,
       reason: m.reason,
       badgeClass: m.movement_type === 'defect' ? 'defect' : m.type,
       notes: m.notes,

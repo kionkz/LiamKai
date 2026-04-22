@@ -7,10 +7,12 @@ use App\Http\Requests\PurchaseOrders\StorePurchaseOrderRequest;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\Inventory;
+use App\Models\Payment;
 use App\Models\StockMovement;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class PurchaseOrderController extends Controller
 {
@@ -24,7 +26,7 @@ class PurchaseOrderController extends Controller
             $sortBy = (string) $request->input('sort_by', 'created_at');
             $sortDirection = strtolower((string) $request->input('sort_direction', 'desc')) === 'asc' ? 'asc' : 'desc';
 
-            $purchaseOrders = PurchaseOrder::with('supplier', 'purchaseOrderItems.product')
+            $purchaseOrders = PurchaseOrder::with('supplier', 'purchaseOrderItems.product', 'payments.recordedBy')
                 ->leftJoin('suppliers', 'suppliers.id', '=', 'purchase_orders.supplier_id')
                 ->select('purchase_orders.*')
                 ->when($sortBy === 'id', fn ($query) => $query->orderBy('purchase_orders.id', $sortDirection))
@@ -131,7 +133,7 @@ class PurchaseOrderController extends Controller
     public function show(string $id): JsonResponse
     {
         try {
-            $purchaseOrder = PurchaseOrder::with('supplier', 'purchaseOrderItems.product')
+            $purchaseOrder = PurchaseOrder::with('supplier', 'purchaseOrderItems.product', 'payments.recordedBy')
                 ->findOrFail($id);
             
             return response()->json([
@@ -167,6 +169,8 @@ class PurchaseOrderController extends Controller
                 'recipient_name' => 'sometimes|required_with:received_items|string|max:255',
                 'damage_notes' => 'sometimes|nullable|string',
                 'shortage_notes' => 'sometimes|nullable|string',
+                'payment_method' => 'sometimes|required_with:received_items|in:cash,bank_transfer',
+                'payment_reference' => 'required_if:payment_method,bank_transfer|nullable|string|max:255',
                 'received_items' => 'sometimes|required|array|min:1',
                 'received_items.*.purchase_order_item_id' => 'required_with:received_items|exists:purchase_order_items,id',
                 'received_items.*.received_quantity' => 'nullable|numeric|min:0',
@@ -279,7 +283,7 @@ class PurchaseOrderController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Purchase order updated successfully',
-                'data' => $purchaseOrder->fresh(['supplier', 'purchaseOrderItems.product'])
+                'data' => $purchaseOrder->fresh(['supplier', 'purchaseOrderItems.product', 'payments.recordedBy'])
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -414,11 +418,13 @@ class PurchaseOrderController extends Controller
                         StockMovement::create([
                             'product_id'      => $item->product_id,
                             'quantity'         => $batchQty,
+                            'remaining_quantity' => $batchQty,
                             'type'            => 'stock_in',
                             'movement_type'   => 'purchase_receipt',
                             'reason'          => 'Purchase order receipt',
                             'reference'       => $purchaseOrder->order_number,
                             'reference_id'    => $purchaseOrder->id,
+                            'performed_by_user_id' => auth()->id(),
                             'expiration_date' => $batch['expiration_date'] ?? null,
                             'notes'           => trim("Accepted by {$validated['recipient_name']}" . (!empty($receivedItem['notes']) ? " | {$receivedItem['notes']}" : '')),
                         ]);
@@ -430,11 +436,13 @@ class PurchaseOrderController extends Controller
                     StockMovement::create([
                         'product_id'    => $item->product_id,
                         'quantity'       => $acceptedQuantity,
+                        'remaining_quantity' => $acceptedQuantity,
                         'type'          => 'stock_in',
                         'movement_type' => 'purchase_receipt',
                         'reason'        => 'Purchase order receipt',
                         'reference'     => $purchaseOrder->order_number,
                         'reference_id'  => $purchaseOrder->id,
+                        'performed_by_user_id' => auth()->id(),
                         'notes'         => trim("Accepted by {$validated['recipient_name']}" . (!empty($receivedItem['notes']) ? " | {$receivedItem['notes']}" : '')),
                     ]);
                 }
@@ -449,6 +457,7 @@ class PurchaseOrderController extends Controller
                     'reason' => 'Damaged on receiving',
                     'reference' => $purchaseOrder->order_number,
                     'reference_id' => $purchaseOrder->id,
+                    'performed_by_user_id' => auth()->id(),
                     'notes' => trim(($validated['damage_notes'] ?? 'Damaged quantity recorded during receiving') . (!empty($receivedItem['notes']) ? " | {$receivedItem['notes']}" : '')),
                 ]);
             }
@@ -462,6 +471,7 @@ class PurchaseOrderController extends Controller
                     'reason' => 'Supplier short shipment',
                     'reference' => $purchaseOrder->order_number,
                     'reference_id' => $purchaseOrder->id,
+                    'performed_by_user_id' => auth()->id(),
                     'notes' => $validated['shortage_notes'] ?? 'Short quantity recorded during receiving',
                 ]);
             }
@@ -496,5 +506,50 @@ class PurchaseOrderController extends Controller
             'received_by' => $validated['recipient_name'] ?? $purchaseOrder->received_by,
             'notes' => $receiptNotes ? implode(' | ', $receiptNotes) : $purchaseOrder->notes,
         ]);
+
+        $this->recordReceivingPayment($purchaseOrder->fresh(), $validated);
+    }
+
+    private function recordReceivingPayment(PurchaseOrder $purchaseOrder, array $validated): void
+    {
+        $method = $validated['payment_method'] ?? null;
+        if (!$method) {
+            $purchaseOrder->update(['payment_status' => 'pending']);
+            return;
+        }
+
+        $existingPayment = Payment::query()
+            ->where('purchase_order_id', $purchaseOrder->id)
+            ->where('status', 'completed')
+            ->first();
+
+        if ($existingPayment) {
+            $purchaseOrder->update(['payment_status' => 'paid']);
+            return;
+        }
+
+        Payment::create([
+            'purchase_order_id' => $purchaseOrder->id,
+            'recorded_by_user_id' => auth()->id(),
+            'amount' => $purchaseOrder->total_amount,
+            'payment_method' => $method,
+            'reference' => $method === 'cash'
+                ? $this->generatePurchasePaymentReference($purchaseOrder)
+                : $validated['payment_reference'],
+            'payment_date' => $purchaseOrder->actual_delivery_date?->toDateString() ?? now()->toDateString(),
+            'status' => 'completed',
+            'notes' => "Quick payment recorded during receiving for {$purchaseOrder->order_number}",
+        ]);
+
+        $purchaseOrder->update(['payment_status' => 'paid']);
+    }
+
+    private function generatePurchasePaymentReference(PurchaseOrder $purchaseOrder): string
+    {
+        do {
+            $reference = sprintf('POPAY-%s-%s', now()->format('Ymd'), Str::upper(Str::random(5)));
+        } while (Payment::where('reference', $reference)->exists());
+
+        return $reference;
     }
 }

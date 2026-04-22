@@ -1,5 +1,8 @@
 <template>
   <div class="dashboard-container">
+    <div v-if="dashboardError" class="dashboard-error">
+      {{ dashboardError }}
+    </div>
 
     <!-- ── Sales / Customer Orders role ── -->
     <template v-if="authStore.hasPermission('customer-orders')">
@@ -179,6 +182,7 @@ const authStore = useAuthStore();
 const router = useRouter();
 
 const loadingOrders = ref(false);
+const dashboardError = ref('');
 const summary = ref({
   headline: {
     todaysSales: 0,
@@ -218,13 +222,17 @@ const formatQuantity = (value) => `${Number(value || 0).toFixed(2)} kg`;
 
 const fetchDashboardData = async () => {
   loadingOrders.value = true;
+  dashboardError.value = '';
   try {
     const response = await api.get('/reports/dashboard-summary');
     if (response.data?.success) {
       summary.value = response.data.data;
+      return;
     }
+    dashboardError.value = response.data?.message || 'Dashboard data could not be loaded.';
   } catch (e) {
     console.error('Dashboard fetch error:', e);
+    dashboardError.value = e.response?.data?.message || 'Dashboard data could not be loaded.';
   } finally {
     loadingOrders.value = false;
   }
@@ -236,6 +244,16 @@ onMounted(fetchDashboardData);
 <style scoped>
 .dashboard-container { max-width: 1400px; margin: 0 auto; animation: fadeIn 0.3s ease-in; padding: 20px 0; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.dashboard-error {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid #fecdca;
+  border-radius: 10px;
+  background: #fff1f2;
+  color: #b42318;
+  font-size: 14px;
+}
 
 /* Widget grid */
 .widgets-grid {

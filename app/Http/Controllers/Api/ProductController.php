@@ -97,7 +97,7 @@ class ProductController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Product created successfully',
-                'data' => $product->load('inventory', 'pricing', 'pricingLogs', 'productCategory')
+                'data' => $product->load('inventory', 'pricing', 'pricingLogs.changedByUser', 'productCategory')
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
@@ -114,7 +114,7 @@ class ProductController extends Controller
     public function show(string $id): JsonResponse
     {
         try {
-            $product = Product::with('inventory', 'pricing', 'pricingLogs', 'suppliers', 'stockMovements', 'productCategory')
+            $product = Product::with('inventory', 'pricing', 'pricingLogs.changedByUser', 'suppliers', 'stockMovements', 'productCategory')
                 ->findOrFail($id);
             
             return response()->json([
@@ -169,7 +169,7 @@ class ProductController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Product updated successfully',
-                'data' => $product->load('inventory', 'pricing', 'pricingLogs', 'productCategory')
+                'data' => $product->load('inventory', 'pricing', 'pricingLogs.changedByUser', 'productCategory')
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -247,6 +247,8 @@ class ProductController extends Controller
 
         PricingLog::create([
             'product_id' => $product->id,
+            'changed_by_user_id' => auth()->id(),
+            'changed_by_name' => auth()->user()?->name,
             'old_retail_price' => $activePricing?->retail_price,
             'new_retail_price' => $resolvedRetailPrice,
             'old_discount_percent' => $activePricing?->discount_percent,

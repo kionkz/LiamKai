@@ -10,6 +10,7 @@ use App\Models\Delivery;
 use App\Models\Inventory;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\StockMovement;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -36,7 +37,7 @@ class OrderController extends Controller
             $sortBy = $validated['sort_by'] ?? 'created_at';
             $sortDirection = $validated['sort_direction'] ?? 'desc';
 
-            $ordersQuery = Order::with('customer', 'orderItems.product', 'payments', 'delivery')
+            $ordersQuery = Order::with('customer', 'orderItems.product', 'payments', 'delivery', 'fulfillmentUpdatedBy')
                 ->leftJoin('customers', 'customers.id', '=', 'orders.customer_id')
                 ->select('orders.*');
 
@@ -144,17 +145,7 @@ class OrderController extends Controller
                     'subtotal' => $item['quantity'] * $resolvedUnitPrice,
                 ]);
 
-                $inventory->applyQuantityDelta(-(float) $item['quantity']);
-
-                $inventory->stockMovements()->create([
-                    'type' => 'stock_out',
-                    'movement_type' => 'sale',
-                    'quantity' => $item['quantity'],
-                    'reason' => 'Customer order fulfilled',
-                    'reference' => "ORDER-{$order->id}",
-                    'reference_id' => $order->id,
-                    'notes' => "Stock deducted for order #{$order->id}",
-                ]);
+                $this->deductInventoryForOrder($inventory, (float) $item['quantity'], $order->id);
 
                 $totalAmount += $item['quantity'] * $resolvedUnitPrice;
             }
@@ -184,7 +175,7 @@ class OrderController extends Controller
 
             DB::commit();
 
-            $order->load('customer', 'orderItems.product', 'payments', 'delivery');
+            $order->load('customer', 'orderItems.product', 'payments', 'delivery', 'fulfillmentUpdatedBy');
 
             return response()->json([
                 'success' => true,
@@ -207,7 +198,7 @@ class OrderController extends Controller
     public function show(string $id): JsonResponse
     {
         try {
-            $order = Order::with('customer', 'orderItems.product', 'payments', 'delivery')
+            $order = Order::with('customer', 'orderItems.product', 'payments', 'delivery', 'fulfillmentUpdatedBy')
                 ->findOrFail($id);
 
             return response()->json([
@@ -234,8 +225,37 @@ class OrderController extends Controller
     public function update(UpdateOrderRequest $request, string $id): JsonResponse
     {
         try {
-            $order = Order::findOrFail($id);
+            $order = Order::with('customer', 'orderItems.product', 'payments')->findOrFail($id);
             $validated = $request->validated();
+            $isEditingItems = array_key_exists('items', $validated);
+
+            if ($this->isOrderLockedForEditing($order)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Completed or cancelled orders can no longer be edited.',
+                ], 422);
+            }
+
+            if ($isEditingItems && ! $this->canFullyEditOrder($order)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order items can only be edited when no payments have been made and the order is not delivered, in progress, or cancelled.',
+                ], 422);
+            }
+
+            $isEditingDeliveryDetails = array_key_exists('delivery_address', $validated)
+                || array_key_exists('delivery_date', $validated)
+                || array_key_exists('scheduled_for', $validated);
+
+            if ($isEditingDeliveryDetails && (
+                in_array($order->fulfillment_status, ['in_progress', 'completed'], true)
+                || in_array($order->delivery_status, ['processing', 'delivered'], true)
+            )) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Delivery details cannot be edited once logistics is en route or delivered.',
+                ], 422);
+            }
 
             if (array_key_exists('fulfillment_type', $validated) && $validated['fulfillment_type'] === 'pickup') {
                 $validated['delivery_address'] = null;
@@ -255,19 +275,34 @@ class OrderController extends Controller
                 $validated['fulfillment_status'] = $this->mapDeliveryStatusToFulfillmentStatus($validated['delivery_status']);
             }
 
+            DB::beginTransaction();
+
+            if ($isEditingItems) {
+                $this->replaceEditableOrderItems($order, $validated['items']);
+                unset($validated['items']);
+            }
+
             $order->update($validated);
+
+            DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Order updated successfully',
-                'data' => $this->formatOrder($order->load('customer', 'orderItems.product', 'payments', 'delivery'))
+                'data' => $this->formatOrder($order->load('customer', 'orderItems.product', 'payments', 'delivery', 'fulfillmentUpdatedBy'))
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             return response()->json([
                 'success' => false,
                 'message' => 'Order not found'
             ], 404);
         } catch (\Exception $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating order',
@@ -313,17 +348,7 @@ class OrderController extends Controller
 
             foreach ($order->orderItems as $item) {
                 $inventory = Inventory::where('product_id', $item->product_id)->firstOrFail();
-                $inventory->applyQuantityDelta((float) $item->quantity);
-
-                $inventory->stockMovements()->create([
-                    'type' => 'stock_in',
-                    'movement_type' => 'order_cancel',
-                    'quantity' => $item->quantity,
-                    'reason' => 'Cancelled order stock restoration',
-                    'reference' => "ORDER-{$order->id}",
-                    'reference_id' => $order->id,
-                    'notes' => "Stock restored for cancelled order #{$order->id}",
-                ]);
+                $this->restoreInventoryForCancelledOrder($inventory, (float) $item->quantity, $order->id);
             }
 
             if ($order->delivery) {
@@ -379,6 +404,13 @@ class OrderController extends Controller
         $formatted['remaining_balance'] = (float) $order->outstanding_balance;
         $formatted['order_date'] = $order->created_at?->toDateString();
         $formatted['scheduled_for'] = $order->scheduled_for?->toIso8601String();
+        $formatted['actual_fulfillment_at'] = $order->actual_fulfillment_at?->toIso8601String();
+        $formatted['fulfillment_action'] = $order->fulfillment_action;
+        $formatted['fulfillment_updated_by'] = $order->fulfillmentUpdatedBy ? [
+            'id' => $order->fulfillmentUpdatedBy->id,
+            'name' => $order->fulfillmentUpdatedBy->name,
+            'username' => $order->fulfillmentUpdatedBy->username,
+        ] : null;
         $formatted['fulfillment_type'] = $order->fulfillment_type ?? 'delivery';
         $formatted['fulfillment_status'] = $order->fulfillment_status
             ?? $this->mapDeliveryStatusToFulfillmentStatus($order->delivery_status ?? 'pending');
@@ -409,5 +441,242 @@ class OrderController extends Controller
         $isPaid = $order->payment_status === 'paid' || (float) $order->outstanding_balance <= 0;
 
         return $isDelivered && $isPaid ? 'complete' : 'pending';
+    }
+
+    private function canFullyEditOrder(Order $order): bool
+    {
+        if ($this->isOrderLockedForEditing($order)) {
+            return false;
+        }
+
+        $hasPaymentActivity = $order->payments->isNotEmpty()
+            || in_array($order->payment_status, ['paid', 'partially_paid', 'utang'], true)
+            || (float) $order->outstanding_balance < (float) $order->total_amount;
+
+        $hasFulfillmentProgress = in_array($order->fulfillment_status, ['in_progress', 'completed', 'cancelled'], true)
+            || in_array($order->delivery_status, ['processing', 'delivered', 'cancelled'], true);
+
+        return ! $hasPaymentActivity && ! $hasFulfillmentProgress;
+    }
+
+    private function isOrderLockedForEditing(Order $order): bool
+    {
+        return $this->resolveOrderStatus($order) === 'complete'
+            || in_array($order->fulfillment_status, ['completed', 'cancelled'], true)
+            || in_array($order->delivery_status, ['delivered', 'cancelled'], true);
+    }
+
+    private function replaceEditableOrderItems(Order $order, array $items): void
+    {
+        $this->restoreSaleMovementsForOrderEdit($order);
+
+        $order->orderItems()->delete();
+
+        $totalAmount = 0;
+        $orderType = $order->customer?->type ?? $order->order_type ?? 'retail';
+
+        foreach ($items as $item) {
+            $inventory = Inventory::with('product.pricing')
+                ->where('product_id', $item['product_id'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $quantity = (float) $item['quantity'];
+
+            if ($inventory->availableQuantity() < $quantity) {
+                $productName = $inventory->product?->name ?? "Product ID {$item['product_id']}";
+                throw new \Exception("Insufficient stock for {$productName}. Available: {$inventory->availableQuantity()}");
+            }
+
+            $resolvedUnitPrice = PricingMath::resolveOrderPrice($inventory->product, $orderType);
+
+            OrderItem::create([
+                'order_id' => $order->id,
+                'product_id' => $item['product_id'],
+                'quantity' => $quantity,
+                'unit_price' => $resolvedUnitPrice,
+                'subtotal' => $quantity * $resolvedUnitPrice,
+            ]);
+
+            $this->deductInventoryForOrder($inventory, $quantity, $order->id);
+            $totalAmount += $quantity * $resolvedUnitPrice;
+        }
+
+        $order->forceFill([
+            'total_amount' => $totalAmount,
+            'outstanding_balance' => $totalAmount,
+        ])->save();
+        $order->refresh();
+    }
+
+    private function restoreSaleMovementsForOrderEdit(Order $order): void
+    {
+        $saleMovements = StockMovement::query()
+            ->where('type', 'stock_out')
+            ->where('movement_type', 'sale')
+            ->where('reference_id', $order->id)
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($saleMovements as $movement) {
+            $inventory = Inventory::where('product_id', $movement->product_id)->lockForUpdate()->first();
+            if (! $inventory) {
+                $movement->update(['movement_type' => 'sale_reversed']);
+                continue;
+            }
+
+            $restored = (float) $movement->quantity;
+
+            if ($movement->source_stock_movement_id) {
+                $batch = StockMovement::lockForUpdate()->find($movement->source_stock_movement_id);
+                if ($batch) {
+                    $batch->forceFill([
+                        'remaining_quantity' => (float) ($batch->remaining_quantity ?? 0) + $restored,
+                        'expired' => false,
+                    ])->save();
+                }
+
+                $inventory->syncQuantityFromBatches();
+            } else {
+                $inventory->applyQuantityDelta($restored);
+            }
+
+            $inventory->stockMovements()->create([
+                'type' => 'stock_in',
+                'movement_type' => 'order_edit_restore',
+                'quantity' => $restored,
+                'reason' => 'Order edit stock restoration',
+                'reference' => "ORDER-{$order->id}",
+                'reference_id' => $order->id,
+                'source_stock_movement_id' => $movement->source_stock_movement_id,
+                'performed_by_user_id' => auth()->id(),
+                'expiration_date' => $movement->expiration_date,
+                'notes' => "Stock restored before editing order #{$order->id}",
+            ]);
+
+            $movement->update(['movement_type' => 'sale_reversed']);
+        }
+    }
+
+    private function deductInventoryForOrder(Inventory $inventory, float $quantity, int $orderId): void
+    {
+        $startingQuantity = $inventory->availableQuantity();
+        $remaining = $quantity;
+        $batches = StockMovement::query()
+            ->where('product_id', $inventory->product_id)
+            ->where('type', 'stock_in')
+            ->where('movement_type', 'purchase_receipt')
+            ->where('remaining_quantity', '>', 0)
+            ->orderByRaw('expiration_date IS NULL')
+            ->orderBy('expiration_date')
+            ->orderBy('created_at')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($batches as $batch) {
+            if ($remaining <= 0) {
+                break;
+            }
+
+            $available = (float) $batch->remaining_quantity;
+            $deducted = min($available, $remaining);
+
+            $batch->forceFill(['remaining_quantity' => $available - $deducted])->save();
+
+            $inventory->stockMovements()->create([
+                'type' => 'stock_out',
+                'movement_type' => 'sale',
+                'quantity' => $deducted,
+                'reason' => 'Customer order fulfilled',
+                'reference' => "ORDER-{$orderId}",
+                'reference_id' => $orderId,
+                'source_stock_movement_id' => $batch->id,
+                'performed_by_user_id' => auth()->id(),
+                'expiration_date' => $batch->expiration_date,
+                'notes' => "Stock deducted for order #{$orderId}",
+            ]);
+
+            $remaining -= $deducted;
+        }
+
+        if ($remaining > 0.005) {
+            $nextQuantity = max(0, $startingQuantity - $quantity);
+            $updates = ['quantity' => $nextQuantity];
+            if (array_key_exists('quantity_on_hand', $inventory->getAttributes())) {
+                $updates['quantity_on_hand'] = $nextQuantity;
+            }
+            $inventory->forceFill($updates)->save();
+            $inventory->refresh();
+
+            $inventory->stockMovements()->create([
+                'type' => 'stock_out',
+                'movement_type' => 'sale',
+                'quantity' => $remaining,
+                'reason' => 'Customer order fulfilled',
+                'reference' => "ORDER-{$orderId}",
+                'reference_id' => $orderId,
+                'performed_by_user_id' => auth()->id(),
+                'notes' => "Stock deducted for order #{$orderId}",
+            ]);
+
+            return;
+        }
+
+        $inventory->syncQuantityFromBatches();
+    }
+
+    private function restoreInventoryForCancelledOrder(Inventory $inventory, float $quantity, int $orderId): void
+    {
+        $saleMovements = StockMovement::query()
+            ->where('product_id', $inventory->product_id)
+            ->where('type', 'stock_out')
+            ->where('movement_type', 'sale')
+            ->where('reference_id', $orderId)
+            ->whereNotNull('source_stock_movement_id')
+            ->get();
+
+        if ($saleMovements->isEmpty()) {
+            $inventory->applyQuantityDelta($quantity);
+            $inventory->stockMovements()->create([
+                'type' => 'stock_in',
+                'movement_type' => 'order_cancel',
+                'quantity' => $quantity,
+                'remaining_quantity' => $quantity,
+                'reason' => 'Cancelled order stock restoration',
+                'reference' => "ORDER-{$orderId}",
+                'reference_id' => $orderId,
+                'performed_by_user_id' => auth()->id(),
+                'notes' => "Stock restored for cancelled order #{$orderId}",
+            ]);
+            return;
+        }
+
+        foreach ($saleMovements as $movement) {
+            $batch = StockMovement::lockForUpdate()->find($movement->source_stock_movement_id);
+            if (!$batch) {
+                continue;
+            }
+
+            $restored = (float) $movement->quantity;
+            $batch->forceFill([
+                'remaining_quantity' => (float) ($batch->remaining_quantity ?? 0) + $restored,
+                'expired' => false,
+            ])->save();
+
+            $inventory->stockMovements()->create([
+                'type' => 'stock_in',
+                'movement_type' => 'order_cancel',
+                'quantity' => $restored,
+                'reason' => 'Cancelled order stock restoration',
+                'reference' => "ORDER-{$orderId}",
+                'reference_id' => $orderId,
+                'source_stock_movement_id' => $batch->id,
+                'performed_by_user_id' => auth()->id(),
+                'expiration_date' => $batch->expiration_date,
+                'notes' => "Stock restored for cancelled order #{$orderId}",
+            ]);
+        }
+
+        $inventory->syncQuantityFromBatches();
     }
 }

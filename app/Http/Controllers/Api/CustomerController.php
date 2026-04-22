@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Customers\StoreCustomerRequest;
 use App\Http\Requests\Customers\UpdateCustomerRequest;
 use App\Models\Customer;
+use App\Models\Order;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -84,7 +85,7 @@ class CustomerController extends Controller
     {
         try {
             $data = $request->validated();
-            $data['credit_limit'] = $data['type'] === 'wholesale' ? 15000 : null;
+            $data['credit_limit'] = $data['type'] === 'wholesale' ? 15000 : 0;
             $customer = Customer::create($data);
             
             return response()->json([
@@ -107,7 +108,12 @@ class CustomerController extends Controller
     public function show(string $id): JsonResponse
     {
         try {
-            $customer = Customer::with('orders.orderItems.product', 'orders.payments')
+            $customer = Customer::with([
+                    'orders' => fn ($query) => $query->latest(),
+                    'orders.orderItems.product',
+                    'orders.payments',
+                    'orders.delivery',
+                ])
                 ->findOrFail($id);
             
             // Credit tracking: sum of outstanding_balance on non-paid orders
@@ -118,6 +124,17 @@ class CustomerController extends Controller
             $customer->credit_used = (float) $creditUsed;
             $customer->credit_available = $creditLimit > 0 ? max($creditLimit - $creditUsed, 0) : null;
             $customer->credit_limit_exceeded = $creditLimit > 0 && $creditUsed >= $creditLimit;
+            $customer->orders->each(function (Order $order) {
+                $order->setAttribute('order_status', $this->resolveOrderStatus($order));
+                $order->setAttribute('items', $order->orderItems->map(fn ($item) => [
+                    'id' => $item->id,
+                    'product_id' => $item->product_id,
+                    'product' => $item->product,
+                    'quantity' => (float) $item->quantity,
+                    'unit_price' => (float) $item->unit_price,
+                    'subtotal' => (float) $item->subtotal,
+                ])->values());
+            });
             
             return response()->json([
                 'success' => true,
@@ -146,7 +163,7 @@ class CustomerController extends Controller
             $customer = Customer::findOrFail($id);
             $data = $request->validated();
             $effectiveType = $data['type'] ?? $customer->type;
-            $data['credit_limit'] = $effectiveType === 'wholesale' ? 15000 : null;
+            $data['credit_limit'] = $effectiveType === 'wholesale' ? 15000 : 0;
             $customer->update($data);
             
             return response()->json([
@@ -202,5 +219,17 @@ class CustomerController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function resolveOrderStatus(Order $order): string
+    {
+        if ($order->fulfillment_status === 'cancelled' || $order->delivery_status === 'cancelled') {
+            return 'cancelled';
+        }
+
+        $isDelivered = $order->fulfillment_status === 'completed' || $order->delivery_status === 'delivered';
+        $isPaid = $order->payment_status === 'paid' || (float) $order->outstanding_balance <= 0;
+
+        return $isDelivered && $isPaid ? 'complete' : 'pending';
     }
 }

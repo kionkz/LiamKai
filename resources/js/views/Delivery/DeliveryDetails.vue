@@ -33,12 +33,16 @@
               </span>
             </div>
             <div class="info-row">
-              <span class="lbl">Delivery Address</span>
+              <span class="lbl">{{ order.fulfillment_type === 'pickup' ? 'Pickup Note' : 'Delivery Address' }}</span>
               <span>{{ order.delivery_address || '—' }}</span>
             </div>
             <div class="info-row">
               <span class="lbl">Scheduled</span>
               <span>{{ formatDateTime(order.scheduled_for) }}</span>
+            </div>
+            <div class="info-row">
+              <span class="lbl">{{ order.fulfillment_type === 'pickup' ? 'Picked Up Date' : 'Delivered Date' }}</span>
+              <span>{{ formatDateTime(order.actual_fulfillment_at) }}</span>
             </div>
             <div class="info-row">
               <span class="lbl">Total Amount</span>
@@ -82,6 +86,10 @@
       <!-- Status Update -->
       <div class="card status-card">
         <h3 class="section-title">Update Fulfillment Status</h3>
+        <div class="completion-date-row">
+          <label>{{ completionDateLabel }}</label>
+          <input v-model="actualFulfillmentAt" type="datetime-local" :disabled="order.fulfillment_status === 'completed'" />
+        </div>
         <div class="status-buttons">
           <button
             v-for="opt in statusOptions"
@@ -99,13 +107,21 @@
           {{ updateMessage }}
         </p>
       </div>
+
+      <div class="card">
+        <h3 class="section-title">Audit</h3>
+        <div class="audit-box">
+          <strong>{{ auditLabel }}</strong>
+          <span>{{ auditTimeLabel }}</span>
+        </div>
+      </div>
     </template>
 
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../api';
 
@@ -117,6 +133,7 @@ const updating = ref(false);
 const updateMessage = ref('');
 const updateError = ref(false);
 const order = ref(null);
+const actualFulfillmentAt = ref('');
 
 const statusOptions = [
   { value: 'pending', icon: '○' },
@@ -130,10 +147,34 @@ const statusLabel = (s, fulfillmentType = 'delivery') => {
   return 'Pending';
 };
 
+const completionDateLabel = computed(() => {
+  if (!order.value) return 'Completion Date';
+  return order.value.fulfillment_type === 'pickup' ? 'Pickup Date & Time' : 'Delivery Date & Time';
+});
+
+const userName = (user) => user?.name || user?.username || 'Unknown user';
+
+const auditLabel = computed(() => {
+  if (!order.value?.fulfillment_action && !order.value?.fulfillment_updated_by) {
+    return 'No logistics update yet';
+  }
+
+  return `${userName(order.value.fulfillment_updated_by)} ${order.value.fulfillment_action || 'updated logistics'}`;
+});
+
+const auditTimeLabel = computed(() => {
+  const value = order.value?.actual_fulfillment_at || order.value?.updated_at;
+  return value ? formatDateTime(value) : '—';
+});
+
 const canSelectStatus = (status) => {
   if (!order.value || order.value.fulfillment_status === status) return false;
   if (order.value.fulfillment_status === 'completed') return false;
-  if (order.value.fulfillment_status === 'pending' && status === 'completed') return false;
+  if (
+    order.value.fulfillment_type !== 'pickup'
+    && order.value.fulfillment_status === 'pending'
+    && status === 'completed'
+  ) return false;
   return true;
 };
 
@@ -142,6 +183,19 @@ const formatDateTime = (value) => {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+};
+
+const formatDateTimeLocal = (value) => {
+  if (!value) {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+  }
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
 };
 
 const formatAmount = (val) =>
@@ -154,6 +208,7 @@ const loadOrder = async () => {
     const res = await api.get(`/orders/${route.params.id}`);
     if (res.data?.success) {
       order.value = res.data.data;
+      actualFulfillmentAt.value = formatDateTimeLocal(res.data.data.actual_fulfillment_at);
       return;
     }
     loadError.value = res.data?.message || 'Failed to load order';
@@ -170,13 +225,23 @@ const updateStatus = async (status) => {
   updateMessage.value = '';
   updateError.value = false;
   try {
-    const res = await api.patch(`/orders/${order.value.id}/fulfillment-status`, { status });
+    const payload = { status };
+    if (status === 'completed') {
+      payload.actual_fulfillment_at = actualFulfillmentAt.value || formatDateTimeLocal();
+    }
+
+    const res = await api.patch(`/orders/${order.value.id}/fulfillment-status`, payload);
     if (res.data?.success) {
       order.value = {
         ...order.value,
         fulfillment_status: res.data.data?.status || status,
         delivery_status: res.data.data?.delivery_status || order.value.delivery_status,
+        delivery_date: res.data.data?.delivery_date || order.value.delivery_date,
+        actual_fulfillment_at: res.data.data?.actual_fulfillment_at || order.value.actual_fulfillment_at,
+        fulfillment_action: res.data.data?.fulfillment_action || order.value.fulfillment_action,
+        fulfillment_updated_by: res.data.data?.fulfillment_updated_by || order.value.fulfillment_updated_by,
       };
+      actualFulfillmentAt.value = formatDateTimeLocal(order.value.actual_fulfillment_at);
       updateMessage.value = 'Status updated successfully.';
       return;
     }
@@ -323,6 +388,32 @@ onMounted(loadOrder);
 /* Status card */
 .status-card { }
 
+.completion-date-row {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+
+.completion-date-row label {
+  color: #3f4d5f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.completion-date-row input {
+  height: 42px;
+  border: 1px solid #dce2ec;
+  border-radius: 8px;
+  color: #25334a;
+  padding: 0 12px;
+}
+
+.completion-date-row input:disabled {
+  background: #f3f5f7;
+  color: #7a8594;
+}
+
 .status-buttons { display: flex; gap: 12px; flex-wrap: wrap; }
 
 .status-btn {
@@ -360,6 +451,26 @@ onMounted(loadOrder);
 
 .update-msg { margin: 14px 0 0; font-size: 13px; color: #2a8d57; font-weight: 600; }
 .update-msg.error { color: #c0392b; }
+
+.audit-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #e6eaf2;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.audit-box strong {
+  color: #0a1d37;
+  font-size: 14px;
+}
+
+.audit-box span {
+  color: #607089;
+  font-size: 13px;
+}
 
 @media (max-width: 720px) {
   .grid-two { grid-template-columns: 1fr; }

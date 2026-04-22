@@ -103,40 +103,102 @@
 
     <!-- Stock Update Modal -->
     <div v-if="showStockModal" class="modal-overlay" @click.self="closeStockModal">
-      <div class="modal-content" @click.stop>
+      <div class="modal-content stock-modal" @click.stop>
         <div class="modal-header">
           <h2>Update Stock - {{ stockTarget?.name }}</h2>
           <button @click="closeStockModal" class="btn-close">&times;</button>
         </div>
         <div class="modal-body">
-          <div class="form-group">
-            <label>SKU:</label>
-            <p class="current-stock">{{ formatSku(stockTarget?.sku) }}</p>
+          <div class="stock-summary-grid">
+            <div>
+              <span>SKU</span>
+              <strong>{{ formatSku(stockTarget?.sku) }}</strong>
+            </div>
+            <div>
+              <span>Current Total Stock</span>
+              <strong>{{ formatNumber(stockTarget?.quantity) }} {{ stockTarget?.unit_of_measure || 'units' }}</strong>
+            </div>
+            <div>
+              <span>Selected Batch Available</span>
+              <strong>{{ selectedBatch ? formatNumber(selectedBatch.available_quantity) : '—' }}</strong>
+            </div>
           </div>
-          <div class="form-group">
-            <label>Current Stock:</label>
-            <p class="current-stock">{{ stockTarget?.quantity }} {{ stockTarget?.unit_of_measure || 'units' }}</p>
+
+          <div class="profile-grid">
+            <div class="form-group">
+              <label>Action Type</label>
+              <select v-model="stockActionType" class="form-input" data-searchable="off">
+                <option value="stock_out">Stock Out / Deduct</option>
+                <option value="manual_adjustment">Manual Adjustment</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Reason</label>
+              <SearchableSelect v-model="adjustmentReason" :options="adjustmentReasonOptions" placeholder="Select reason" />
+            </div>
           </div>
+
           <div class="form-group">
             <label>Quantity to Deduct</label>
             <div class="adjustment-controls">
               <button @click="adjustmentAmount = Math.max(0, adjustmentAmount - 1)" class="btn-qty" type="button">-</button>
-              <input v-model.number="adjustmentAmount" type="number" min="0" @input="adjustmentAmount = Math.max(0, adjustmentAmount || 0)" />
+              <input v-model.number="adjustmentAmount" type="number" min="0" :max="selectedBatch?.available_quantity || undefined" step="0.01" @input="adjustmentAmount = Math.max(0, adjustmentAmount || 0)" />
               <button @click="adjustmentAmount++" class="btn-qty" type="button">+</button>
             </div>
           </div>
-          <div class="form-group">
-            <label>Reason</label>
-            <SearchableSelect v-model="adjustmentReason" :options="adjustmentReasonOptions" placeholder="Select reason" />
+
+          <div class="batch-panel">
+            <div class="batch-panel-header">
+              <div>
+                <h3>Receipt Batches</h3>
+                <p>Select the exact received batch to deduct from.</p>
+              </div>
+              <input v-model="batchExpirationFilter" class="form-input batch-filter" type="date" />
+            </div>
+            <div v-if="batchLoading" class="no-data">Loading batches...</div>
+            <div v-else-if="filteredBatches.length === 0" class="no-data">No available receipt batches found for this product.</div>
+            <table v-else class="data-table batch-table">
+              <thead>
+                <tr>
+                  <th class="select-column"></th>
+                  <th>Available Quantity</th>
+                  <th>Expiration Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="batch in pagedBatches"
+                  :key="batch.id"
+                  :class="{ 'selected-row': selectedBatchId === batch.id, 'expired-row': batch.expired }"
+                  @click="selectedBatchId = batch.id"
+                >
+                  <td class="select-column">
+                    <input type="radio" name="stock-batch" :checked="selectedBatchId === batch.id" @change="selectedBatchId = batch.id" />
+                  </td>
+                  <td>{{ formatNumber(batch.available_quantity) }}</td>
+                  <td>
+                    {{ formatDate(batch.expiration_date) }}
+                    <span v-if="batch.expired" class="status low">Expired</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="pagination compact" v-if="batchLastPage > 1">
+              <button class="btn btn-secondary" type="button" @click="batchPage = Math.max(1, batchPage - 1)" :disabled="batchPage === 1">Previous</button>
+              <span class="page-info">Page {{ batchPage }} of {{ batchLastPage }}</span>
+              <button class="btn btn-secondary" type="button" @click="batchPage = Math.min(batchLastPage, batchPage + 1)" :disabled="batchPage === batchLastPage">Next</button>
+            </div>
           </div>
+
           <div class="form-group">
             <label>Notes</label>
             <textarea v-model="adjustmentNotes" rows="3" placeholder="Optional notes..."></textarea>
           </div>
+          <p v-if="stockValidationMessage" class="inline-error">{{ stockValidationMessage }}</p>
         </div>
         <div class="modal-footer">
           <button @click="closeStockModal" class="btn btn-secondary">Cancel</button>
-          <button @click="submitStockUpdate" :disabled="updating" class="btn btn-primary">
+          <button @click="submitStockUpdate" :disabled="updating || !isStockUpdateValid" class="btn btn-primary">
             {{ updating ? 'Updating...' : 'Update Stock' }}
           </button>
         </div>
@@ -154,7 +216,8 @@
           <div class="profile-grid">
             <div class="form-group">
               <label>SKU</label>
-              <input v-model="profileForm.sku" type="text" placeholder="Enter SKU" />
+              <input :value="formatSku(profileForm.sku)" type="text" readonly class="readonly-input" />
+              <small class="field-hint">SKU is system-generated and updates automatically when product details change.</small>
             </div>
             <div class="form-group">
               <label>Product Name</label>
@@ -201,18 +264,19 @@
             <strong>{{ formatCurrency(profileDiscountedPrice) }}</strong>
           </div>
 
-          <h3 style="margin-top:12px">Movement History</h3>
-          <div v-if="(productDetails.stockMovements || productDetails.stock_movements || []).length === 0">
-            <p>No movement history available.</p>
+          <h3 style="margin-top:12px">Stock Batches</h3>
+          <div v-if="profileBatches.length === 0">
+            <p>No dated stock batches available yet.</p>
           </div>
           <table v-else class="data-table">
-            <thead><tr><th>Date</th><th>Type</th><th>Qty</th><th>Reason</th></tr></thead>
+            <thead><tr><th>Date Added</th><th>Expiration Date</th><th>Original Qty</th><th>Available Qty</th><th>Reference</th></tr></thead>
             <tbody>
-              <tr v-for="m in (productDetails.stockMovements || productDetails.stock_movements || [])" :key="m.id">
-                <td>{{ new Date(m.created_at).toLocaleString() }}</td>
-                <td>{{ m.movement_type || m.type }}</td>
-                <td>{{ m.quantity }}</td>
-                <td>{{ m.reason || m.notes || '-' }}</td>
+              <tr v-for="batch in profileBatches" :key="batch.id" :class="{ 'expired-row': batch.expired }">
+                <td>{{ formatDateTime(batch.date_added || batch.created_at) }}</td>
+                <td>{{ formatDate(batch.expiration_date) }}</td>
+                <td>{{ formatNumber(batch.original_quantity ?? batch.quantity) }}</td>
+                <td>{{ formatNumber(batch.available_quantity ?? batch.remaining_quantity ?? batch.quantity) }}</td>
+                <td>{{ batch.reference || '-' }}</td>
               </tr>
             </tbody>
           </table>
@@ -222,13 +286,15 @@
             <p>No pricing changes recorded yet.</p>
           </div>
           <table v-else class="data-table">
-            <thead><tr><th>Date</th><th>Retail</th><th>Discount</th><th>Wholesale</th></tr></thead>
+            <thead><tr><th>Date</th><th>Changed By</th><th>Retail</th><th>Wholesale</th><th>Previous Retail</th><th>Previous Wholesale</th></tr></thead>
             <tbody>
               <tr v-for="entry in pricingLogs" :key="entry.id">
-                <td>{{ new Date(entry.changed_at || entry.created_at).toLocaleString() }}</td>
+                <td>{{ formatDateTime(entry.changed_at || entry.created_at) }}</td>
+                <td>{{ entry.changed_by_user?.name || entry.changed_by_name || '-' }}</td>
                 <td>{{ formatCurrency(entry.new_retail_price) }}</td>
-                <td>{{ formatPercent(entry.new_discount_percent) }}</td>
-                <td>{{ formatCurrency(entry.new_discounted_price) }}</td>
+                <td>{{ formatCurrency(resolveLogWholesale(entry, 'new')) }}</td>
+                <td>{{ formatCurrency(entry.old_retail_price) }}</td>
+                <td>{{ formatCurrency(resolveLogWholesale(entry, 'old')) }}</td>
               </tr>
             </tbody>
           </table>
@@ -300,7 +366,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
 import { calculateDiscountedPriceFromAmount, discountAmountToPercent, normalizeDiscountPercent, resolveDiscountAmount, resolveDiscountedPrice, resolveRetailPrice } from '../../utils/pricing';
@@ -324,9 +390,16 @@ const savingProfile = ref(false);
 const profileForm = ref({ sku: '', name: '', category_id: '', description: '', unit_of_measure: '', reorder_point: 0, retail_price: 0, discount_amount: 0 });
 const showStockModal = ref(false);
 const stockTarget = ref(null);
+const stockActionType = ref('stock_out');
 const adjustmentAmount = ref(0);
 const adjustmentReason = ref('damage');
 const adjustmentNotes = ref('');
+const selectedBatchId = ref(null);
+const batchExpirationFilter = ref('');
+const batchPage = ref(1);
+const batchPerPage = 5;
+const batchLoading = ref(false);
+const availableBatches = ref([]);
 
 const adjustmentReasonOptions = [
   { value: 'damage', label: 'Damage/Defect' },
@@ -348,7 +421,25 @@ const normalizeUnitOfMeasure = (value) => {
 };
 
 const formatCurrency = (val) => val != null ? '\u20B1' + Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-';
+const formatNumber = (val) => Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatSku = (value) => value || '—';
+const formatDate = (value) => value ? new Date(value).toLocaleDateString() : '-';
+const formatDateTime = (value) => value ? new Date(value).toLocaleString() : '-';
+const resolveLogWholesale = (entry, key = 'new') => {
+  const discounted = Number(key === 'new' ? entry?.new_discounted_price : entry?.old_discounted_price);
+  if (Number.isFinite(discounted) && discounted > 0) {
+    return discounted;
+  }
+
+  const retail = Number(key === 'new' ? entry?.new_retail_price : entry?.old_retail_price);
+  const discountPercent = normalizeDiscountPercent(key === 'new' ? entry?.new_discount_percent : entry?.old_discount_percent);
+
+  if (!Number.isFinite(retail) || retail <= 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round(retail * (1 - discountPercent / 100) * 100) / 100);
+};
 const stockHealth = (quantity) => {
   const current = Number(quantity || 0);
   if (current <= 10) return { label: 'Low', className: 'low' };
@@ -359,6 +450,39 @@ const newProductDiscountedPrice = computed(() => calculateDiscountedPriceFromAmo
 const profileDiscountedPrice = computed(() => calculateDiscountedPriceFromAmount(profileForm.value.retail_price, profileForm.value.discount_amount));
 const profileProduct = computed(() => productDetails.value?.product || selectedProduct.value || {});
 const pricingLogs = computed(() => profileProduct.value?.pricingLogs || profileProduct.value?.pricing_logs || []);
+const profileBatches = computed(() => {
+  const apiBatches = productDetails.value?.available_batches || [];
+  if (apiBatches.length) return apiBatches;
+
+  const movements = productDetails.value?.stockMovements || productDetails.value?.stock_movements || [];
+
+  return movements
+    .filter((movement) => (movement.type === 'stock_in' || movement.movement_type === 'purchase_receipt') && movement.expiration_date)
+    .sort((a, b) => new Date(a.expiration_date).getTime() - new Date(b.expiration_date).getTime());
+});
+
+const filteredBatches = computed(() => {
+  return availableBatches.value.filter((batch) => !batchExpirationFilter.value || batch.expiration_date === batchExpirationFilter.value);
+});
+
+const batchLastPage = computed(() => Math.max(1, Math.ceil(filteredBatches.value.length / batchPerPage)));
+
+const pagedBatches = computed(() => {
+  const start = (batchPage.value - 1) * batchPerPage;
+  return filteredBatches.value.slice(start, start + batchPerPage);
+});
+
+const selectedBatch = computed(() => availableBatches.value.find((batch) => batch.id === selectedBatchId.value) || null);
+
+const stockValidationMessage = computed(() => {
+  if (!selectedBatch.value) return 'Select a receipt batch before updating stock.';
+  if (!adjustmentReason.value) return 'Select a reason.';
+  if (!Number(adjustmentAmount.value) || Number(adjustmentAmount.value) <= 0) return 'Quantity must be greater than zero.';
+  if (Number(adjustmentAmount.value) > Number(selectedBatch.value.available_quantity || 0)) return 'Quantity cannot exceed selected batch availability.';
+  return '';
+});
+
+const isStockUpdateValid = computed(() => stockValidationMessage.value === '');
 
 const filteredProducts = computed(() => {
   return products.value.filter((p) => {
@@ -433,22 +557,46 @@ const changePage = (page) => {
 const openStockUpdateSelected = () => {
   if (!selectedProduct.value) return;
   stockTarget.value = selectedProduct.value;
+  stockActionType.value = 'stock_out';
   adjustmentAmount.value = 0;
   adjustmentReason.value = 'damage';
   adjustmentNotes.value = '';
+  selectedBatchId.value = null;
+  batchExpirationFilter.value = '';
+  batchPage.value = 1;
+  fetchProductBatches(selectedProduct.value.id);
   showStockModal.value = true;
 };
 
-const closeStockModal = () => { showStockModal.value = false; stockTarget.value = null; };
+const closeStockModal = () => { showStockModal.value = false; stockTarget.value = null; availableBatches.value = []; };
+
+const fetchProductBatches = async (productId) => {
+  batchLoading.value = true;
+  try {
+    const response = await api.get('/inventory/' + productId);
+    if (response.data.success) {
+      availableBatches.value = response.data.data.available_batches || [];
+      if (availableBatches.value.length) {
+        selectedBatchId.value = availableBatches.value[0].id;
+      }
+    }
+  } catch (err) {
+    alert(err.response?.data?.message || 'Failed to load stock batches');
+  } finally {
+    batchLoading.value = false;
+  }
+};
 
 const submitStockUpdate = async () => {
+  if (!isStockUpdateValid.value) return;
   updating.value = true;
   try {
-    const updateData = {};
-    if (adjustmentAmount.value !== 0) {
-      updateData.adjustment_quantity = adjustmentAmount.value;
-      updateData.adjustment_reason = adjustmentReason.value;
-    }
+    const updateData = {
+      action_type: stockActionType.value,
+      batch_id: selectedBatchId.value,
+      adjustment_quantity: adjustmentAmount.value,
+      adjustment_reason: adjustmentReason.value,
+    };
     if (adjustmentNotes.value) { updateData.adjustment_note = adjustmentNotes.value; }
     const response = await api.put('/inventory/' + stockTarget.value.id, updateData);
     if (response.data.success) { await fetchProducts(pagination.value.current_page); closeStockModal(); }
@@ -491,7 +639,6 @@ const saveProductProfile = async () => {
     const productId = productDetails.value.product.id;
     await api.put(`/products/${productId}`, {
       name: profileForm.value.name,
-      sku: profileForm.value.sku || null,
       category_id: Number(profileForm.value.category_id),
       description: profileForm.value.description || null,
       unit_of_measure: normalizeUnitOfMeasure(profileForm.value.unit_of_measure),
@@ -540,6 +687,10 @@ onMounted(async () => {
   await fetchCategories();
   await fetchProducts(1);
 });
+
+watch(batchExpirationFilter, () => {
+  batchPage.value = 1;
+});
 </script>
 
 <style scoped>
@@ -586,6 +737,8 @@ onMounted(async () => {
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal-content { background: white; border-radius: 12px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; }
+.profile-modal { max-width: 960px; width: min(96vw, 960px); }
+.stock-modal { max-width: 1080px; width: min(96vw, 1080px); }
 .modal-header { position: sticky; top: 0; z-index: 3; background: white; padding: 20px 24px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
 .modal-header h2 { margin: 0; color: #0a1d37; font-size: 18px; }
 .btn-close { background: none; border: none; font-size: 24px; color: #999; cursor: pointer; }
@@ -603,8 +756,23 @@ onMounted(async () => {
 .choice-option input { width: 16px; height: 16px; margin: 0; accent-color: #e57c2a; }
 .choice-option span { font-weight: 600; color: #102746; }
 .profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.readonly-input { background-color: #f5f7fa; color: #526173; cursor: not-allowed; }
+.field-hint { display: inline-block; margin-top: 6px; color: #607089; font-size: 12px; }
 .pricing-preview { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 10px; background: #fff7ed; color: #9a3412; font-weight: 600; margin-bottom: 12px; }
 .pricing-preview strong { font-size: 18px; color: #7c2d12; }
+.stock-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.stock-summary-grid > div { border: 1px solid #e4e9f0; border-radius: 10px; padding: 14px 16px; background: #f8fafc; }
+.stock-summary-grid span { display: block; color: #607089; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px; }
+.stock-summary-grid strong { color: #102746; font-size: 17px; }
+.batch-panel { border: 1px solid #e4e9f0; border-radius: 12px; padding: 16px; margin: 16px 0; background: #fbfcfe; }
+.batch-panel-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; margin-bottom: 12px; }
+.batch-panel-header h3 { margin: 0 0 4px; color: #102746; font-size: 16px; }
+.batch-panel-header p { margin: 0; color: #607089; font-size: 13px; }
+.batch-filter { max-width: 220px; }
+.batch-table td { vertical-align: middle; }
+.expired-row { background: #f3f4f6 !important; color: #7b8794; }
+.pagination.compact { padding: 12px 0 0; border-top: 0; justify-content: center; }
+.inline-error { margin: 8px 0 0; color: #b91c1c; font-weight: 600; font-size: 13px; }
 .current-stock { margin: 0; font-size: 16px; font-weight: 600; color: #e57c2a; }
 .adjustment-controls { display: flex; gap: 12px; align-items: center; }
 .btn-qty { width: 44px; height: 44px; border: 2px solid #e9ecef; background: #fafbfc; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 18px; transition: all 0.3s; }
@@ -613,5 +781,10 @@ onMounted(async () => {
 .adjustment-controls input:focus { outline: none; border-color: #e57c2a; box-shadow: 0 0 0 3px rgba(229,124,42,0.1); background: white; }
 .loading-state, .error-state { text-align: center; padding: 60px 40px; color: #666; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin: 20px 0; }
 .error-state { color: #d32f2f; background-color: #fef2f2; border-left: 4px solid #d32f2f; }
+@media (max-width: 768px) {
+  .profile-grid, .stock-summary-grid { grid-template-columns: 1fr; }
+  .batch-panel-header { align-items: stretch; flex-direction: column; }
+  .batch-filter { max-width: none; }
+}
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>

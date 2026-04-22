@@ -24,7 +24,7 @@ class PaymentController extends Controller
                 'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
             ]);
 
-            $payments = Payment::with('order.customer')
+            $payments = Payment::with('order.customer', 'recordedBy')
                 ->orderByDesc('payment_date')
                 ->orderByDesc('created_at')
                 ->paginate($validated['per_page'] ?? 15);
@@ -74,7 +74,7 @@ class PaymentController extends Controller
             $query = Order::with([
                 'customer',
                 'payments' => function ($paymentQuery) {
-                    $paymentQuery->latest('payment_date')->latest('created_at');
+                    $paymentQuery->with('recordedBy')->latest('payment_date')->latest('created_at');
                 },
             ])
                 ->leftJoin('customers', 'customers.id', '=', 'orders.customer_id')
@@ -141,6 +141,11 @@ class PaymentController extends Controller
                             'reference' => $payment->reference,
                             'bank_name' => $payment->bank_name,
                             'status' => $payment->status,
+                            'recorded_by' => $payment->recordedBy ? [
+                                'id' => $payment->recordedBy->id,
+                                'name' => $payment->recordedBy->name,
+                                'username' => $payment->recordedBy->username,
+                            ] : null,
                         ];
                     })->values(),
                 ];
@@ -208,6 +213,7 @@ class PaymentController extends Controller
 
             $payment = Payment::create([
                 'order_id' => $request->order_id,
+                'recorded_by_user_id' => $request->user()?->id,
                 'amount' => $request->amount,
                 'payment_method' => $method,
                 'reference' => $request->reference ?: $this->generatePaymentReference(),
@@ -268,7 +274,7 @@ class PaymentController extends Controller
     public function show(string $id): JsonResponse
     {
         try {
-            $payment = Payment::with('order.customer', 'order.orderItems')->findOrFail($id);
+            $payment = Payment::with('order.customer', 'order.orderItems', 'recordedBy')->findOrFail($id);
 
             return response()->json([
                 'success' => true,

@@ -33,6 +33,25 @@
       </article>
     </div>
 
+    <div class="tabs">
+      <button
+        type="button"
+        class="tab-btn"
+        :class="{ active: activeFulfillmentType === 'delivery' }"
+        @click="changeFulfillmentTab('delivery')"
+      >
+        Deliveries
+      </button>
+      <button
+        type="button"
+        class="tab-btn"
+        :class="{ active: activeFulfillmentType === 'pickup' }"
+        @click="changeFulfillmentTab('pickup')"
+      >
+        Pickups
+      </button>
+    </div>
+
     <!-- Toolbar -->
     <div class="toolbar">
       <input
@@ -78,9 +97,9 @@
         :to="`/deliveries/${selectedOrderId}`"
         class="action-btn primary"
       >
-        &#9998; Update Logistics
+        &#9998; Update {{ activeFulfillmentType === 'pickup' ? 'Pickup' : 'Delivery' }}
       </router-link>
-      <span v-else class="hint-text">Select a row to update its logistics status</span>
+      <span v-else class="hint-text">Select a {{ activeFulfillmentType === 'pickup' ? 'pickup' : 'delivery' }} row to update its fulfillment status</span>
     </div>
 
     <!-- Table -->
@@ -96,8 +115,10 @@
               <th>Type</th>
               <th>Address / Note</th>
               <th>Scheduled</th>
+              <th>{{ activeFulfillmentType === 'pickup' ? 'Picked Up' : 'Delivered' }}</th>
               <th>Amount</th>
               <th>Status</th>
+              <th>Audit</th>
             </tr>
           </thead>
           <tbody>
@@ -116,13 +137,15 @@
               </td>
               <td class="address-cell">{{ order.delivery_address || '—' }}</td>
               <td>{{ formatDateTime(order.scheduled_for) }}</td>
+              <td>{{ formatDateTime(order.actual_fulfillment_at) }}</td>
               <td class="amount-cell">₱{{ formatAmount(order.total_amount) }}</td>
               <td>
                 <span class="status-pill" :class="order.status">{{ statusLabel(order.status, order.fulfillment_type) }}</span>
               </td>
+              <td class="audit-cell">{{ auditLabel(order) }}</td>
             </tr>
             <tr v-if="orders.length === 0">
-              <td colspan="7" class="empty-row">
+              <td colspan="9" class="empty-row">
                 {{ emptyStateLabel }}
               </td>
             </tr>
@@ -148,6 +171,7 @@ const orders = ref([]);
 const loading = ref(false);
 const loadError = ref('');
 const selectedOrderId = ref(null);
+const activeFulfillmentType = ref('delivery');
 
 const searchTerm = ref('');
 const selectedStatus = ref('all');
@@ -184,7 +208,7 @@ const formatDateDisplay = (value) => {
 
 const emptyStateLabel = computed(() => {
   if (appliedIncludeAll.value) {
-    return 'No logistics orders matched the current filters.';
+    return `No ${activeFulfillmentType.value === 'pickup' ? 'pickup' : 'delivery'} orders matched the current filters.`;
   }
 
   if (appliedDateFrom.value && appliedDateTo.value && appliedDateFrom.value !== appliedDateTo.value) {
@@ -197,6 +221,16 @@ const emptyStateLabel = computed(() => {
 const formatAmount = (val) =>
   Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const userName = (user) => user?.name || user?.username || 'Unknown user';
+
+const auditLabel = (order) => {
+  if (!order.fulfillment_action && !order.fulfillment_updated_by) {
+    return 'No logistics update yet';
+  }
+
+  return `${userName(order.fulfillment_updated_by)} ${order.fulfillment_action || 'updated logistics'}`;
+};
+
 const loadOrders = async (page = 1) => {
   loading.value = true;
   loadError.value = '';
@@ -205,6 +239,7 @@ const loadOrders = async (page = 1) => {
       page,
       per_page: pagination.value.per_page,
       include_all: appliedIncludeAll.value,
+      fulfillment_type: activeFulfillmentType.value,
       sort_by: sortBy.value,
       sort_direction: sortDirection.value,
     };
@@ -236,6 +271,13 @@ const loadOrders = async (page = 1) => {
   } finally {
     loading.value = false;
   }
+};
+
+const changeFulfillmentTab = (type) => {
+  if (activeFulfillmentType.value === type) return;
+  activeFulfillmentType.value = type;
+  selectedOrderId.value = null;
+  loadOrders(1);
 };
 
 const changePage = (page) => {
@@ -314,6 +356,34 @@ onMounted(() => loadOrders(1));
 
 .stat-label { margin: 0; font-size: 11px; color: #7b8598; text-transform: uppercase; letter-spacing: 0.5px; }
 .stat-value { margin: 0; font-size: 32px; line-height: 1; color: #122544; font-weight: 800; }
+
+.tabs {
+  display: flex;
+  gap: 20px;
+  padding: 0;
+  border-bottom: 1px solid #d8dde6;
+}
+
+.tab-btn {
+  appearance: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: #5f6470;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 14px 0 12px;
+}
+
+.tab-btn.active {
+  color: #e57c2a;
+  border-bottom-color: #e57c2a;
+}
+
+.tab-btn:hover {
+  color: #c45f17;
+}
 
 /* Toolbar */
 .toolbar {
@@ -462,6 +532,7 @@ tbody tr:last-child td { border-bottom: none; }
 .order-no { font-weight: 700; color: #0a1d37; }
 .address-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #5a6882; }
 .amount-cell { font-weight: 600; color: #0a1d37; }
+.audit-cell { color: #5a6882; font-size: 12px; max-width: 220px; }
 
 /* Badges */
 .type-badge {

@@ -58,13 +58,14 @@
             <th>Scheduled</th>
             <th>Total</th>
             <th>Payment</th>
-            <th>Status</th>
+            <th>Fulfillment Status</th>
+            <th>Order Status</th>
             <th>Order Date</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="orders.length === 0">
-            <td colspan="10" class="no-data">No orders found matching your criteria.</td>
+            <td colspan="11" class="no-data">No orders found matching your criteria.</td>
           </tr>
           <tr
             v-for="order in orders"
@@ -82,6 +83,7 @@
             <td>{{ formatScheduled(order.scheduled_for) }}</td>
             <td>₱{{ Number(order.total_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</td>
             <td><span class="pay-status" :class="order.payment_status">{{ formatPaymentStatus(order.payment_status) }}</span></td>
+            <td><span class="status" :class="order.fulfillment_status">{{ formatFulfillmentStatus(order.fulfillment_status) }}</span></td>
             <td><span class="status" :class="order.order_status">{{ formatOrderStatus(order.order_status) }}</span></td>
             <td>{{ formatOrderDate(order.order_date || order.created_at) }}</td>
           </tr>
@@ -111,8 +113,9 @@
             <p><strong>Pricing:</strong> {{ formatPricingType(selectedOrder.type) }}</p>
             <p><strong>Fulfillment:</strong> {{ formatFulfillmentType(selectedOrder.fulfillment_type) }}</p>
             <p><strong>Scheduled:</strong> {{ formatScheduled(selectedOrder.scheduled_for) }}</p>
-            <p><strong>Status:</strong> {{ formatOrderStatus(selectedOrder.order_status) }}</p>
-            <p><strong>Logistics Status:</strong> {{ formatFulfillmentStatus(selectedOrder.fulfillment_status) }}</p>
+            <p><strong>Payment Status:</strong> {{ formatPaymentStatus(selectedOrder.payment_status) }}</p>
+            <p><strong>Fulfillment Status:</strong> {{ formatFulfillmentStatus(selectedOrder.fulfillment_status) }}</p>
+            <p><strong>Order Status:</strong> {{ formatOrderStatus(selectedOrder.order_status) }}</p>
             <p v-if="selectedOrder.delivery_address"><strong>Delivery Address:</strong> {{ selectedOrder.delivery_address }}</p>
             <p v-if="selectedOrder.notes"><strong>Notes:</strong> {{ selectedOrder.notes }}</p>
           </div>
@@ -155,28 +158,96 @@
     </div>
 
     <div v-if="showEditModal" class="modal-overlay" @click="showEditModal = false">
-      <div class="modal-content" @click.stop>
+      <div class="modal-content order-edit-modal" @click.stop>
         <h3>Edit Selected Order</h3>
         <form @submit.prevent="saveOrderEdit">
-          <div class="form-group">
-            <label>Fulfillment Type</label>
-            <SearchableSelect v-model="editForm.fulfillment_type" :options="fulfillmentTypeOptions" placeholder="Select fulfillment type" />
+          <div v-if="isSelectedOrderLocked" class="edit-lock-panel locked">
+            <strong>Editing is locked for this order.</strong>
+            <span>{{ selectedOrderEditLockReason }}</span>
           </div>
-          <div class="form-group">
-            <label>Scheduled Date &amp; Time</label>
-            <input v-model="editForm.scheduled_for" type="datetime-local" />
+          <div v-else-if="!canEditSelectedOrderDetails" class="edit-lock-panel">
+            <strong>Delivery details are locked.</strong>
+            <span>Logistics has already started, so order details can no longer be changed.</span>
+          </div>
+
+          <div class="edit-grid">
+            <div class="form-group">
+              <label>Fulfillment Type</label>
+              <SearchableSelect
+                v-model="editForm.fulfillment_type"
+                :options="fulfillmentTypeOptions"
+                placeholder="Select fulfillment type"
+                :disabled="!canEditSelectedOrderDetails"
+              />
+            </div>
+            <div class="form-group">
+              <label>Scheduled Date &amp; Time</label>
+              <input v-model="editForm.scheduled_for" type="datetime-local" :disabled="!canEditSelectedOrderDetails" />
+            </div>
           </div>
           <div class="form-group" v-if="editForm.fulfillment_type === 'delivery'">
             <label>Delivery Address</label>
-            <input v-model="editForm.delivery_address" type="text" />
+            <input v-model="editForm.delivery_address" type="text" :disabled="!canEditSelectedOrderDetails" />
           </div>
           <div class="form-group">
             <label>Notes</label>
-            <textarea v-model="editForm.notes" rows="3"></textarea>
+            <textarea v-model="editForm.notes" rows="3" :disabled="!canEditSelectedOrderDetails"></textarea>
+          </div>
+
+          <div class="edit-products-section" :class="{ 'products-locked': !canEditSelectedOrderFully }">
+            <div class="edit-section-header">
+              <div>
+                <h4>Products</h4>
+                <p v-if="!canEditSelectedOrderFully" class="section-note">
+                  Product and quantity edits are available only before any payment or logistics activity.
+                </p>
+              </div>
+              <button type="button" class="btn btn-secondary btn-small" :disabled="!canEditSelectedOrderFully" @click="addEditItem">Add Product</button>
+            </div>
+
+            <div v-for="(item, index) in editForm.items" :key="index" class="edit-item-row">
+              <div class="form-group">
+                <label>Product</label>
+                <SearchableSelect
+                  v-model="item.product_id"
+                  :options="productOptions"
+                  placeholder="Select product"
+                  :disabled="!canEditSelectedOrderFully"
+                  @change="syncEditItemPrice(index)"
+                />
+              </div>
+              <div class="form-group">
+                <label>Quantity</label>
+                <input
+                  v-model.number="item.quantity"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  :disabled="!canEditSelectedOrderFully"
+                  @input="item.quantity = Math.max(0, item.quantity || 0)"
+                  @blur="normalizeEditItemQuantity(index)"
+                />
+              </div>
+              <div class="form-group">
+                <label>Unit Price</label>
+                <input :value="formatMoney(item.unit_price)" type="text" readonly />
+              </div>
+              <div class="form-group">
+                <label>Subtotal</label>
+                <input :value="formatMoney(Number(item.quantity || 0) * Number(item.unit_price || 0))" type="text" readonly />
+              </div>
+              <button type="button" class="btn btn-danger btn-remove" :disabled="!canEditSelectedOrderFully || editForm.items.length <= 1" @click="removeEditItem(index)">Remove</button>
+            </div>
+          </div>
+
+          <p v-if="editError" class="warning-text">{{ editError }}</p>
+          <div class="edit-total">
+            <span>Total</span>
+            <strong>{{ formatMoney(editOrderTotal) }}</strong>
           </div>
           <div class="modal-actions">
             <button type="button" @click="showEditModal = false" class="btn btn-secondary">Cancel</button>
-            <button type="submit" :disabled="savingEdit" class="btn btn-primary">{{ savingEdit ? 'Saving...' : 'Save' }}</button>
+            <button type="submit" :disabled="savingEdit || !canEditSelectedOrderDetails" class="btn btn-primary">{{ savingEdit ? 'Saving...' : 'Save' }}</button>
           </div>
         </form>
       </div>
@@ -203,6 +274,8 @@ import autoTable from 'jspdf-autotable';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
 import CreateOrder from './CreateOrder.vue';
+import { getApiErrorMessage } from '../../utils/orderValidation';
+import { resolveOrderUnitPrice } from '../../utils/pricing';
 
 const orders = ref([]);
 const loading = ref(false);
@@ -219,12 +292,15 @@ const showEditModal = ref(false);
 const showDeleteConfirm = ref(false);
 const deleting = ref(false);
 const savingEdit = ref(false);
+const editError = ref('');
+const products = ref([]);
 
 const editForm = ref({
   fulfillment_type: 'delivery',
   scheduled_for: '',
   delivery_address: '',
   notes: '',
+  items: [],
 });
 
 const fulfillmentTypeOptions = [
@@ -233,6 +309,9 @@ const fulfillmentTypeOptions = [
 ];
 
 const selectedOrder = computed(() => orders.value.find((order) => order.id === selectedOrderId.value) || null);
+const productOptions = computed(() => products.value.map((product) => ({ value: product.id, label: product.name })));
+const selectedOrderCustomerType = computed(() => selectedOrder.value?.type || selectedOrder.value?.customer?.type || 'retail');
+const editOrderTotal = computed(() => editForm.value.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0));
 const canCancelSelectedOrder = computed(() => {
   if (!selectedOrder.value) return false;
 
@@ -243,6 +322,21 @@ const canCancelSelectedOrder = computed(() => {
 
   return !hasLogisticsProgress && !hasPaymentActivity;
 });
+const isSelectedOrderLocked = computed(() => selectedOrder.value ? isOrderLockedForEditing(selectedOrder.value) : false);
+const canEditSelectedOrderDetails = computed(() => {
+  if (!selectedOrder.value || isSelectedOrderLocked.value) return false;
+  return !hasLogisticsProgress(selectedOrder.value);
+});
+const canEditSelectedOrderFully = computed(() => selectedOrder.value ? canFullyEditOrder(selectedOrder.value) : false);
+const selectedOrderEditLockReason = computed(() => {
+  if (!selectedOrder.value) return '';
+  if (selectedOrder.value.order_status === 'complete') return 'This order is already complete, so products, schedule, address, and notes are read-only.';
+  if (selectedOrder.value.order_status === 'cancelled' || selectedOrder.value.fulfillment_status === 'cancelled') return 'Cancelled orders are kept for records and cannot be edited.';
+  if (selectedOrder.value.fulfillment_status === 'completed' || selectedOrder.value.delivery_status === 'delivered') return 'Delivered orders can no longer be edited.';
+  return 'This order can no longer be edited.';
+});
+
+const formatMoney = (value) => `₱${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const formatOrderDate = (value) => {
   if (!value) return '--';
@@ -284,6 +378,100 @@ const formatPaymentStatus = (value) => {
   if (value === 'paid') return 'Paid';
   if (value === 'partially_paid' || value === 'utang') return 'Partial';
   return 'Unpaid';
+};
+
+const findProduct = (productId) => products.value.find((product) => String(product.id) === String(productId));
+
+const canFullyEditOrder = (order) => {
+  if (isOrderLockedForEditing(order)) return false;
+
+  return !hasLogisticsProgress(order) && !hasPaymentActivity(order);
+};
+
+const isOrderLockedForEditing = (order) => {
+  if (!order) return true;
+  return order.order_status === 'complete'
+    || order.order_status === 'cancelled'
+    || ['completed', 'cancelled'].includes(order.fulfillment_status)
+    || ['delivered', 'cancelled'].includes(order.delivery_status);
+};
+
+const hasLogisticsProgress = (order) => ['in_progress', 'completed', 'cancelled'].includes(order.fulfillment_status)
+  || ['processing', 'delivered', 'cancelled'].includes(order.delivery_status);
+
+const hasPaymentActivity = (order) => ['paid', 'partially_paid', 'utang'].includes(order.payment_status)
+  || Number(order.outstanding_balance || 0) < Number(order.total_amount || 0)
+  || Number(order.amount_paid || 0) > 0
+  || (order.payments || []).length > 0;
+
+const orderItems = (order) => order?.items || order?.order_items || [];
+
+const buildEditItem = (item = {}) => ({
+  product_id: item.product_id || item.product?.id || '',
+  quantity: Number(item.quantity || 1),
+  unit_price: Number(item.unit_price || 0),
+});
+
+const syncEditItemPrice = (index) => {
+  const item = editForm.value.items[index];
+  const product = findProduct(item.product_id);
+  item.unit_price = product ? resolveOrderUnitPrice(product, selectedOrderCustomerType.value) : 0;
+};
+
+const addEditItem = () => {
+  editForm.value.items.push(buildEditItem());
+};
+
+const removeEditItem = (index) => {
+  editForm.value.items.splice(index, 1);
+};
+
+const normalizeEditItemQuantity = (index) => {
+  if (!canEditSelectedOrderFully.value) return;
+  const item = editForm.value.items[index];
+  const product = findProduct(item.product_id);
+  const quantity = Number(item.quantity || 0);
+
+  if (product?.unit_of_measure === 'Per pack') {
+    item.quantity = Math.max(1, Math.round(quantity || 1));
+    return;
+  }
+
+  if (selectedOrderCustomerType.value === 'wholesale' && quantity < 10) {
+    item.quantity = 10;
+    return;
+  }
+
+  if (selectedOrderCustomerType.value !== 'wholesale' && quantity >= 10) {
+    item.quantity = 9.99;
+    return;
+  }
+
+  item.quantity = quantity <= 0 ? 0.01 : quantity;
+};
+
+const validateEditForm = () => {
+  if (!canEditSelectedOrderDetails.value) return selectedOrderEditLockReason.value || 'This order can no longer be edited.';
+  if (!editForm.value.scheduled_for) return 'Scheduled date and time is required.';
+  if (editForm.value.fulfillment_type === 'delivery' && !editForm.value.delivery_address.trim()) return 'Delivery address is required.';
+
+  if (!canEditSelectedOrderFully.value) {
+    return '';
+  }
+
+  const validItems = editForm.value.items.filter((item) => item.product_id);
+  if (validItems.length === 0) return 'Add at least one product.';
+
+  for (const [index, item] of validItems.entries()) {
+    const product = findProduct(item.product_id);
+    const quantity = Number(item.quantity || 0);
+    if (!product) return `Item ${index + 1}: select a valid product.`;
+    if (quantity <= 0) return `Item ${index + 1}: quantity must be greater than zero.`;
+    if (product.unit_of_measure === 'kg' && selectedOrderCustomerType.value === 'retail' && quantity >= 10) return `Item ${index + 1}: retail orders must be below 10kg.`;
+    if (product.unit_of_measure === 'kg' && selectedOrderCustomerType.value === 'wholesale' && quantity < 10) return `Item ${index + 1}: wholesale orders must be at least 10kg.`;
+  }
+
+  return '';
 };
 
 const selectOrder = (order) => {
@@ -337,30 +525,63 @@ const openSummaryModal = () => {
 
 const openEditModal = () => {
   if (!selectedOrder.value) return;
+  editError.value = '';
   editForm.value = {
     fulfillment_type: selectedOrder.value.fulfillment_type || 'delivery',
     scheduled_for: formatDateTimeLocal(selectedOrder.value.scheduled_for),
     delivery_address: selectedOrder.value.delivery_address || '',
     notes: selectedOrder.value.notes || '',
+    items: orderItems(selectedOrder.value).map(buildEditItem),
   };
+  editForm.value.items.forEach((_, index) => syncEditItemPrice(index));
+  if (editForm.value.items.length === 0) addEditItem();
   showEditModal.value = true;
 };
 
 const saveOrderEdit = async () => {
   if (!selectedOrder.value) return;
+  editError.value = validateEditForm();
+  if (editError.value) return;
+
   savingEdit.value = true;
   try {
-    const response = await api.put(`/orders/${selectedOrder.value.id}`, editForm.value);
+    const payload = {
+      fulfillment_type: editForm.value.fulfillment_type,
+      scheduled_for: editForm.value.scheduled_for,
+      delivery_address: editForm.value.fulfillment_type === 'delivery' ? editForm.value.delivery_address : null,
+      notes: editForm.value.notes,
+    };
+
+    if (canEditSelectedOrderFully.value) {
+      payload.items = editForm.value.items
+        .filter((item) => item.product_id)
+        .map((item) => ({ product_id: item.product_id, quantity: Number(item.quantity || 0) }));
+    }
+
+    const response = await api.put(`/orders/${selectedOrder.value.id}`, payload);
     if (response.data.success) {
+      const updatedOrder = response.data.data;
       await fetchOrders(pagination.value.current_page);
+      if (updatedOrder?.id) {
+        selectedOrderId.value = updatedOrder.id;
+      }
       showEditModal.value = false;
       return;
     }
-    alert(response.data.message || 'Failed to update order');
+    editError.value = response.data.message || 'Failed to update order';
   } catch (err) {
-    alert(err.response?.data?.message || 'Failed to update order');
+    editError.value = getApiErrorMessage(err, 'Failed to update order');
   } finally {
     savingEdit.value = false;
+  }
+};
+
+const loadProducts = async () => {
+  try {
+    const response = await api.get('/products', { params: { per_page: 250 } });
+    if (response.data.success) products.value = response.data.data || [];
+  } catch (err) {
+    error.value = getApiErrorMessage(err, 'Failed to load products');
   }
 };
 
@@ -458,7 +679,9 @@ const confirmDelete = async () => {
   }
 };
 
-onMounted(() => fetchOrders(1));
+onMounted(async () => {
+  await Promise.all([fetchOrders(1), loadProducts()]);
+});
 </script>
 
 <style scoped>
@@ -675,6 +898,15 @@ onMounted(() => fetchOrders(1));
   margin: auto;
 }
 .small-modal { width: min(420px, 100%); }
+.order-edit-modal {
+  width: min(1120px, 96vw);
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+
+.order-edit-modal h3 {
+  margin: 0 0 18px;
+}
 
 .modal-actions {
   margin-top: 14px;
@@ -688,6 +920,121 @@ onMounted(() => fetchOrders(1));
   flex-direction: column;
   gap: 6px;
   margin-bottom: 10px;
+}
+
+.form-group label {
+  color: #3f4d5f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.form-group input:disabled,
+.form-group textarea:disabled {
+  background: #f3f5f7;
+  color: #7a8594;
+  cursor: not-allowed;
+}
+
+.edit-lock-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.edit-lock-panel.locked {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.edit-lock-panel strong {
+  color: inherit;
+  font-size: 14px;
+}
+
+.edit-lock-panel span {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.edit-products-section {
+  margin-top: 16px;
+  border-top: 1px solid #eef1f4;
+  padding-top: 16px;
+}
+
+.edit-products-section.products-locked {
+  padding: 16px;
+  border: 1px solid #fed7aa;
+  border-radius: 14px;
+  background: #fffaf5;
+}
+
+.edit-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.edit-section-header h4 {
+  margin: 0;
+  color: #102746;
+  font-size: 15px;
+}
+
+.section-note {
+  margin: 5px 0 0;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.edit-item-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.6fr) 120px 145px 145px auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid #e1e7ef;
+  border-radius: 12px;
+  background: #fbfcfe;
+  margin-bottom: 10px;
+}
+
+.btn-small {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.btn-remove {
+  margin-bottom: 10px;
+}
+
+.edit-total {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 18px;
+  padding-top: 8px;
+  color: #102746;
+}
+
+.edit-total strong {
+  font-size: 20px;
 }
 
 .summary-block p { margin: 6px 0; }
@@ -773,6 +1120,15 @@ onMounted(() => fetchOrders(1));
     width: 100%;
     border-radius: 20px 20px 0 0;
     margin: 0;
+  }
+
+  .edit-grid,
+  .edit-item-row {
+    grid-template-columns: 1fr;
+  }
+
+  .btn-remove {
+    margin-bottom: 0;
   }
 }
 </style>

@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Orders;
 
 use App\Models\Order;
+use App\Models\Product;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
@@ -40,6 +41,9 @@ class UpdateOrderRequest extends FormRequest
             'payment_status' => 'sometimes|in:paid,unpaid,partially_paid',
             'fulfillment_status' => 'sometimes|in:pending,in_progress,completed,cancelled',
             'delivery_status' => 'sometimes|in:pending,processing,delivered,cancelled',
+            'items' => 'sometimes|required|array|min:1',
+            'items.*.product_id' => 'required_with:items|exists:products,id',
+            'items.*.quantity' => 'required_with:items|numeric|min:0.01',
         ];
     }
 
@@ -47,6 +51,7 @@ class UpdateOrderRequest extends FormRequest
     {
         $validator->after(function ($validator) {
             $this->validateDeliveryAddress($validator);
+            $this->validateItemQuantityRules($validator);
 
             if (! $this->filled('order_type')) {
                 return;
@@ -100,6 +105,33 @@ class UpdateOrderRequest extends FormRequest
                 'delivery_address',
                 'Delivery address is required when fulfillment type is delivery.'
             );
+        }
+    }
+
+    private function validateItemQuantityRules(Validator $validator): void
+    {
+        if (! $this->has('items')) {
+            return;
+        }
+
+        $order = Order::with('customer')->find($this->route('order'));
+        $customerType = $order?->customer?->type ?? $order?->order_type ?? 'retail';
+
+        foreach ($this->input('items', []) as $index => $item) {
+            $quantity = isset($item['quantity']) ? (float) $item['quantity'] : null;
+            $product = isset($item['product_id']) ? Product::find($item['product_id']) : null;
+
+            if ($quantity === null || ! $product || $product->unit_of_measure !== 'kg') {
+                continue;
+            }
+
+            if ($customerType === 'retail' && $quantity >= 10) {
+                $validator->errors()->add("items.{$index}.quantity", 'Retail orders must be below 10kg per item.');
+            }
+
+            if ($customerType === 'wholesale' && $quantity < 10) {
+                $validator->errors()->add("items.{$index}.quantity", 'Wholesale orders must be at least 10kg per item.');
+            }
         }
     }
 }

@@ -9,6 +9,8 @@ class PricingLog extends Model
 {
     protected $fillable = [
         'product_id',
+        'changed_by_user_id',
+        'changed_by_name',
         'old_retail_price',
         'new_retail_price',
         'old_discount_percent',
@@ -31,5 +33,10 @@ class PricingLog extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function changedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'changed_by_user_id');
     }
 }
