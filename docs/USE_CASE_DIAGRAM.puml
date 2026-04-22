@@ -74,17 +74,28 @@ UC_Payment     ..> UC_DeletePayment : <<extend>>
 
 ' ─────────────────────────────────────────────────────────────
 ' MODULE 3 — ADMINISTRATION MODULE
+' Routes: POST /employees · GET|PUT /employees/{id}
+'         POST /employees/{id}/account (createAccount)
+'         DELETE /employees/{id}/account (revokeAccount)
+'         PATCH /employees/{id}/account/toggle-status
+'         GET|POST|PUT /products · GET|POST|PUT /categories
+'         POST /reports/sales/generate
+'         GET /reports/analytics · GET /reports/dashboard-summary
+' Role:   admin — full access
+'         purchasing — reports (analytics, dashboard, sales) only
+' NOTE:   No login-log endpoint exists. Role is a field on the
+'         employee record (store/update), NOT a separate use case.
 ' ─────────────────────────────────────────────────────────────
 package "Administration Module" {
-  usecase "Manage Employees"            as UC_ManageEmp
-  usecase "Create Employee\nLogin Account" as UC_CreateAccount
-  usecase "Revoke Employee\nLogin Account" as UC_RevokeAccount
-  usecase "Toggle Account Status\n(Active / Inactive)" as UC_ToggleStatus
-  usecase "Manage Products"             as UC_ManageProducts
-  usecase "Manage Categories"           as UC_ManageCats
-  usecase "Generate Sales Report"       as UC_SalesReport
-  usecase "View Analytics"              as UC_Analytics
-  usecase "View Dashboard Summary"      as UC_Dashboard
+  usecase "Manage Employee Records"                  as UC_ManageEmp
+  usecase "Create Employee\nLogin Account"           as UC_CreateAccount
+  usecase "Revoke Employee\nLogin Account"           as UC_RevokeAccount
+  usecase "Activate / Deactivate\nEmployee Account" as UC_ToggleStatus
+  usecase "Manage Products & Pricing"                as UC_ManageProducts
+  usecase "Manage Categories"                        as UC_ManageCats
+  usecase "Generate Sales Report"                    as UC_SalesReport
+  usecase "View Analytics"                           as UC_Analytics
+  usecase "View Dashboard Summary"                   as UC_Dashboard
 }
 
 AdminActor --> UC_ManageEmp
@@ -92,6 +103,7 @@ AdminActor --> UC_ManageProducts
 AdminActor --> UC_SalesReport
 AdminActor --> UC_Analytics
 AdminActor --> UC_Dashboard
+PurchActor --> UC_SalesReport
 PurchActor --> UC_Analytics
 PurchActor --> UC_Dashboard
 UC_ManageEmp     ..> UC_CreateAccount : <<extend>>
@@ -101,40 +113,61 @@ UC_ManageProducts ..> UC_ManageCats   : <<include>>
 
 ' ─────────────────────────────────────────────────────────────
 ' MODULE 4 — INVENTORY MODULE
+' Routes: GET /inventory (index)
+'         GET /inventory/{product} (show)
+'         PUT|PATCH /inventory/{product} (update — reorder_point
+'           and/or adjustment_quantity; auto-creates StockMovement)
+'         GET /inventory/movements (movements)
+'         GET /inventory/low-stock (showLowStock)
+' Role:   admin, inventory, purchasing
+' NOTE:   No "Generate Inventory Alert" endpoint exists.
+'         showLowStock() returns items where quantity <= reorder_point.
+'         No expiry-date tracking in inventory controller.
+'         "Manage Product Catalog" belongs to ProductController,
+'         not InventoryController — it is NOT part of this module.
 ' ─────────────────────────────────────────────────────────────
 package "Inventory Module" {
-  usecase "View Inventory List"          as UC_ViewInv
-  usecase "View Product Inventory"       as UC_ShowInv
-  usecase "Update Inventory"             as UC_UpdateInv
-  usecase "View Stock Movements"         as UC_Movements
-  usecase "Monitor Low-Stock Items"      as UC_LowStock
-  usecase "Track Expiry Dates"           as UC_TrackExpiry
-  usecase "Mark Expired Items"           as UC_MarkExpired
+  usecase "View Inventory List"     as UC_ViewInv
+  usecase "View Product Inventory"  as UC_ShowInv
+  usecase "Adjust Inventory"        as UC_AdjustInv
+  usecase "Record Stock Movement"   as UC_RecordMovement
+  usecase "View Stock Movements"    as UC_Movements
+  usecase "Monitor Low-Stock Items" as UC_LowStock
 }
 
 InvActor --> UC_ViewInv
 InvActor --> UC_ShowInv
-InvActor --> UC_UpdateInv
+InvActor --> UC_AdjustInv
 InvActor --> UC_Movements
 InvActor --> UC_LowStock
-InvActor --> UC_TrackExpiry
-UC_TrackExpiry ..> UC_MarkExpired : <<extend>>
+UC_AdjustInv ..> UC_RecordMovement : <<include>>
 
-' Inventory Manager also falls under purchasing for stock visibility
+' Purchasing Order Manager has read access to inventory
 PurchActor --> UC_ViewInv
 PurchActor --> UC_Movements
 
 ' ─────────────────────────────────────────────────────────────
 ' MODULE 5 — PURCHASING & SUPPLIERS MANAGER
+' Routes: GET|POST|PUT|DELETE /suppliers
+'         GET|POST /purchase-orders
+'         GET|PUT|PATCH /purchase-orders/{id}
+'           (update handles status changes AND receiving items
+'            via received_items[] when status → received)
+'         DELETE /purchase-orders/{id}
+'         POST /reports/sales/generate (shared with admin)
+' Role:   admin, purchasing
+' NOTE:   No "Record Sales Transaction" endpoint exists.
+'         No "Generate Receiving Report" endpoint exists.
+'         Manage Supplier Profile and Create Purchase Order are
+'         INDEPENDENT use cases — no <<include>> between them.
 ' ─────────────────────────────────────────────────────────────
 package "Purchasing & Suppliers Manager" {
-  usecase "Manage Supplier Profile"           as UC_ManageSupplier
-  usecase "Create Purchase Order"             as UC_CreatePO
-  usecase "View Purchase Orders"              as UC_ViewPO
-  usecase "Update Purchase Order"             as UC_UpdatePO
-  usecase "Record Order Receipt\n(Received Quantities)" as UC_ReceivePO
-  usecase "Cancel / Delete Purchase Order"    as UC_DeletePO
-  usecase "Generate Sales Report"             as UC_POReport
+  usecase "Manage Supplier Profile"        as UC_ManageSupplier
+  usecase "Create Purchase Order"          as UC_CreatePO
+  usecase "View Purchase Orders"           as UC_ViewPO
+  usecase "Update Purchase Order Status"   as UC_UpdatePO
+  usecase "Record Product Receipt"         as UC_ReceivePO
+  usecase "Cancel / Delete Purchase Order" as UC_DeletePO
 }
 
 PurchActor --> UC_ManageSupplier
@@ -142,18 +175,30 @@ PurchActor --> UC_CreatePO
 PurchActor --> UC_ViewPO
 PurchActor --> UC_UpdatePO
 PurchActor --> UC_DeletePO
-PurchActor --> UC_POReport
 UC_UpdatePO ..> UC_ReceivePO : <<extend>>
 
 ' ─────────────────────────────────────────────────────────────
 ' MODULE 6 — DELIVERY LOGISTICS
+' Routes: GET /orders/logistics (LogisticsController@index)
+'         PATCH /orders/{order}/fulfillment-status
+'           (LogisticsController@updateStatus)
+'         GET|POST /deliveries
+'         GET|PUT|PATCH /deliveries/{id}  (status: pending →
+'           in_transit → delivered | failed; also updates
+'           the related order's delivery_status)
+'         DELETE /deliveries/{id}  (cancel — blocked if delivered)
+' Role:   admin, delivery
+' NOTE:   No "Collect Payment on Delivery" endpoint exists.
+'         Updating delivery status automatically syncs the
+'         order's fulfillment/delivery status (<<include>>).
 ' ─────────────────────────────────────────────────────────────
 package "Delivery Logistics" {
-  usecase "View Delivery Schedule\n(Deliveries & Pickups)" as UC_ViewSchedule
-  usecase "Update Fulfillment Status"     as UC_FulfillStatus
-  usecase "Create Delivery Record"        as UC_CreateDelivery
-  usecase "View Delivery Details"         as UC_ViewDelivery
-  usecase "Update Delivery Record"        as UC_UpdateDelivery
+  usecase "View Delivery Schedule\n(Deliveries & Pickups)"       as UC_ViewSchedule
+  usecase "Update Fulfillment Status"                            as UC_FulfillStatus
+  usecase "Create Delivery Record"                               as UC_CreateDelivery
+  usecase "View Delivery Details"                                as UC_ViewDelivery
+  usecase "Update Delivery Status\n(In Transit / Delivered / Failed)" as UC_UpdateDelivery
+  usecase "Cancel Delivery"                                      as UC_CancelDelivery
 }
 
 DelivActor --> UC_ViewSchedule
@@ -161,6 +206,7 @@ DelivActor --> UC_FulfillStatus
 DelivActor --> UC_CreateDelivery
 DelivActor --> UC_ViewDelivery
 DelivActor --> UC_UpdateDelivery
+DelivActor --> UC_CancelDelivery
 UC_UpdateDelivery ..> UC_FulfillStatus : <<include>>
 
 @enduml
