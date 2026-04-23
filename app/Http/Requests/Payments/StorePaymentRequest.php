@@ -24,7 +24,7 @@ class StorePaymentRequest extends FormRequest
         return [
             'order_id' => 'required|exists:orders,id',
             'amount' => 'required|numeric|min:0.01',
-            'payment_method' => 'nullable|in:cash,check,bank_transfer,credit,gcash',
+            'payment_method' => 'nullable|in:cash,check,bank_transfer,gcash',
             'payment_date' => 'nullable|date',
             'deposit_date' => 'required_if:payment_method,check|nullable|date',
             'check_from' => 'required_if:payment_method,check|nullable|string|max:255',

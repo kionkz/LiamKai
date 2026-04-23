@@ -3,7 +3,7 @@
     <div class="actions-bar">
       <div class="selection-state">
         <strong>{{ selectedEmployee ? selectedEmployee.name : 'No employee selected' }}</strong>
-        <span>{{ selectedEmployee ? 'Toolbar actions are enabled for the selected record.' : 'Select a row to edit, change status, or delete.' }}</span>
+        <span>{{ selectedEmployee ? 'Toolbar actions are enabled for the selected record.' : 'Select a row to edit or change status.' }}</span>
       </div>
       <div class="toolbar-actions">
         <button @click="openCreateModal" class="btn btn-primary">New Employee</button>
@@ -12,7 +12,6 @@
         <button @click="toggleSelectedStatus" class="btn btn-secondary" :disabled="!selectedEmployee">
           {{ selectedEmployee?.status === 'active' ? 'Deactivate' : 'Activate' }}
         </button>
-        <button @click="openDeleteConfirm" class="btn btn-danger" :disabled="!selectedEmployee">Delete</button>
       </div>
     </div>
 
@@ -129,7 +128,7 @@
           </div>
           <div class="form-group">
             <label>Phone</label>
-            <input v-model="formData.phone" type="text" />
+            <input v-model="formData.phone" type="text" inputmode="numeric" maxlength="11" @input="normalizeEmployeePhone" />
           </div>
           <div class="form-group">
             <label>Address</label>
@@ -145,20 +144,6 @@
             </button>
           </div>
         </form>
-      </div>
-    </div>
-
-    <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
-      <div class="modal-content small-modal" @click.stop>
-        <h3>Delete Employee</h3>
-        <p>Delete "{{ selectedEmployee?.name }}" from the employee directory?</p>
-        <p class="warning">This action cannot be undone.</p>
-        <div class="modal-actions">
-          <button @click="showDeleteModal = false" class="btn btn-secondary">Cancel</button>
-          <button @click="confirmDelete" :disabled="deleting" class="btn btn-danger">
-            {{ deleting ? 'Deleting...' : 'Delete Employee' }}
-          </button>
-        </div>
       </div>
     </div>
 
@@ -261,13 +246,11 @@ const statusFilter = ref('');
 const sortBy = ref('name');
 const sortDirection = ref('asc');
 const showAddModal = ref(false);
-const showDeleteModal = ref(false);
 const showAccountModal = ref(false);
 const editingEmployee = ref(null);
 const selectedEmployeeId = ref(null);
 const loading = ref(false);
 const saving = ref(false);
-const deleting = ref(false);
 const accountSaving = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
@@ -315,6 +298,10 @@ const resetForm = () => {
     address: '',
     active: true,
   };
+};
+
+const normalizeEmployeePhone = () => {
+  formData.value.phone = String(formData.value.phone || '').replace(/\D/g, '').slice(0, 11);
 };
 
 const toggleSelection = (employeeId) => {
@@ -455,40 +442,6 @@ const toggleSelectedStatus = async () => {
     await loadEmployees(pagination.value.current_page);
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Failed to update employee status';
-  }
-};
-
-const openDeleteConfirm = () => {
-  if (!selectedEmployee.value) return;
-  showDeleteModal.value = true;
-};
-
-const confirmDelete = async () => {
-  if (!selectedEmployee.value) return;
-
-  deleting.value = true;
-  clearMessages();
-
-  try {
-    const response = await api.delete(`/employees/${selectedEmployee.value.id}`);
-    if (!response.data?.success) {
-      errorMessage.value = response.data?.message || 'Failed to delete employee';
-      return;
-    }
-
-    showDeleteModal.value = false;
-    selectedEmployeeId.value = null;
-    successMessage.value = 'Employee deleted successfully.';
-
-    const targetPage = employees.value.length === 1 && pagination.value.current_page > 1
-      ? pagination.value.current_page - 1
-      : pagination.value.current_page;
-
-    await loadEmployees(targetPage);
-  } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Failed to delete employee';
-  } finally {
-    deleting.value = false;
   }
 };
 

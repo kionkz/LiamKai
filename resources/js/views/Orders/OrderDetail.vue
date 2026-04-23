@@ -47,7 +47,7 @@
         <div class="order-total">
           <div class="total-amount">
             <span class="label">Total Amount:</span>
-            <span class="amount">₱{{ order.total_amount?.toLocaleString() || '0' }}</span>
+            <span class="amount">{{ formatCurrency(order.total_amount) }}</span>
           </div>
         </div>
       </div>
@@ -68,8 +68,8 @@
             <tr v-for="item in order.items" :key="item.id">
               <td>{{ item.product?.name || 'N/A' }}</td>
               <td>{{ item.quantity }} {{ item.unit }}</td>
-              <td>₱{{ item.unit_price?.toLocaleString() || '0' }}</td>
-              <td>₱{{ item.total?.toLocaleString() || '0' }}</td>
+              <td>{{ formatCurrency(item.unit_price) }}</td>
+              <td>{{ formatCurrency(item.total) }}</td>
             </tr>
             <tr v-if="!order.items || order.items.length === 0">
               <td colspan="4" class="no-data">No items found for this order.</td>
@@ -126,6 +126,7 @@
 import { computed, ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../api';
+import { formatPeso } from '../../utils/currency';
 import { exportReceiptPdf } from '../../utils/receiptPdf';
 
 const route = useRoute();
@@ -170,7 +171,7 @@ const editOrder = () => {
   alert('Edit order functionality will be implemented');
 };
 
-const formatCurrency = (value) => `₱${Number(value || 0).toFixed(2)}`;
+const formatCurrency = formatPeso;
 
 const formatOrderStatus = (value) => {
   if (value === 'complete') return 'Complete';

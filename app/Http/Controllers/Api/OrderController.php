@@ -10,10 +10,12 @@ use App\Models\Delivery;
 use App\Models\Inventory;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Payment;
 use App\Models\StockMovement;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 use App\Support\PricingMath;
 
@@ -188,6 +190,130 @@ class OrderController extends Controller
                 'success' => false,
                 'message' => 'Error creating order',
                 'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Create a paid walk-in POS order and deduct inventory immediately.
+     */
+    public function storePosTransaction(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'payment_method' => ['required', 'in:cash,gcash'],
+                'reference' => ['required_if:payment_method,gcash', 'nullable', 'string', 'max:255'],
+                'items' => ['required', 'array', 'min:1'],
+                'items.*.product_id' => ['required', 'exists:products,id'],
+                'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
+            ]);
+
+            DB::beginTransaction();
+
+            $now = now();
+            $order = Order::create([
+                'customer_id' => null,
+                'fulfillment_type' => 'pickup',
+                'order_type' => 'retail',
+                'notes' => 'Point of sale transaction',
+                'payment_status' => 'paid',
+                'fulfillment_status' => 'completed',
+                'delivery_status' => 'delivered',
+                'delivery_address' => null,
+                'scheduled_for' => $now,
+                'actual_fulfillment_at' => $now,
+                'delivery_date' => $now->toDateString(),
+                'total_amount' => 0,
+                'outstanding_balance' => 0,
+            ]);
+
+            $totalAmount = 0;
+
+            foreach ($validated['items'] as $item) {
+                $inventory = Inventory::with('product.pricing')
+                    ->where('product_id', $item['product_id'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $quantity = (float) $item['quantity'];
+                $availableQuantity = $inventory->availableQuantity();
+
+                if ($availableQuantity < $quantity) {
+                    $productName = $inventory->product?->name ?? "Product ID {$item['product_id']}";
+                    throw new \Exception("Insufficient stock for {$productName}. Available: {$availableQuantity}");
+                }
+
+                $unitPrice = PricingMath::resolveOrderPrice($inventory->product, 'retail');
+                $subtotal = $quantity * $unitPrice;
+
+                OrderItem::create([
+                    'order_id' => $order->id,
+                    'product_id' => $item['product_id'],
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'subtotal' => $subtotal,
+                ]);
+
+                $this->deductInventoryForOrder(
+                    inventory: $inventory,
+                    quantity: $quantity,
+                    orderId: $order->id,
+                    movementType: 'stock_out_pos',
+                    reason: 'Point of sale transaction'
+                );
+
+                $totalAmount += $subtotal;
+            }
+
+            $order->update([
+                'total_amount' => $totalAmount,
+                'outstanding_balance' => 0,
+            ]);
+
+            $payment = Payment::create([
+                'order_id' => $order->id,
+                'recorded_by_user_id' => $request->user()?->id,
+                'amount' => $totalAmount,
+                'payment_method' => $validated['payment_method'],
+                'reference' => $validated['reference'] ?: $this->generatePosPaymentReference(),
+                'payment_date' => $now->toDateString(),
+                'status' => 'completed',
+                'notes' => 'Point of sale payment',
+            ]);
+
+            DB::commit();
+
+            $order->load('customer', 'orderItems.product', 'payments.recordedBy', 'delivery', 'fulfillmentUpdatedBy');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'POS transaction recorded successfully',
+                'data' => [
+                    'order' => $this->formatOrder($order),
+                    'payment' => [
+                        'id' => $payment->id,
+                        'reference' => $payment->reference,
+                        'payment_method' => $payment->payment_method,
+                        'amount' => (float) $payment->amount,
+                        'payment_date' => optional($payment->payment_date)->toDateString(),
+                    ],
+                ],
+            ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error recording POS transaction',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -558,7 +684,13 @@ class OrderController extends Controller
         }
     }
 
-    private function deductInventoryForOrder(Inventory $inventory, float $quantity, int $orderId): void
+    private function deductInventoryForOrder(
+        Inventory $inventory,
+        float $quantity,
+        int $orderId,
+        string $movementType = 'sale',
+        string $reason = 'Customer order fulfilled'
+    ): void
     {
         $startingQuantity = $inventory->availableQuantity();
         $remaining = $quantity;
@@ -585,15 +717,17 @@ class OrderController extends Controller
 
             $inventory->stockMovements()->create([
                 'type' => 'stock_out',
-                'movement_type' => 'sale',
+                'movement_type' => $movementType,
                 'quantity' => $deducted,
-                'reason' => 'Customer order fulfilled',
+                'reason' => $reason,
                 'reference' => "ORDER-{$orderId}",
                 'reference_id' => $orderId,
                 'source_stock_movement_id' => $batch->id,
                 'performed_by_user_id' => auth()->id(),
                 'expiration_date' => $batch->expiration_date,
-                'notes' => "Stock deducted for order #{$orderId}",
+                'notes' => $movementType === 'stock_out_pos'
+                    ? "POS stock out for order #{$orderId}"
+                    : "Stock deducted for order #{$orderId}",
             ]);
 
             $remaining -= $deducted;
@@ -610,19 +744,30 @@ class OrderController extends Controller
 
             $inventory->stockMovements()->create([
                 'type' => 'stock_out',
-                'movement_type' => 'sale',
+                'movement_type' => $movementType,
                 'quantity' => $remaining,
-                'reason' => 'Customer order fulfilled',
+                'reason' => $reason,
                 'reference' => "ORDER-{$orderId}",
                 'reference_id' => $orderId,
                 'performed_by_user_id' => auth()->id(),
-                'notes' => "Stock deducted for order #{$orderId}",
+                'notes' => $movementType === 'stock_out_pos'
+                    ? "POS stock out for order #{$orderId}"
+                    : "Stock deducted for order #{$orderId}",
             ]);
 
             return;
         }
 
         $inventory->syncQuantityFromBatches();
+    }
+
+    private function generatePosPaymentReference(): string
+    {
+        do {
+            $reference = 'POS-' . now()->format('Ymd') . '-' . Str::upper(Str::random(6));
+        } while (Payment::where('reference', $reference)->exists());
+
+        return $reference;
     }
 
     private function restoreInventoryForCancelledOrder(Inventory $inventory, float $quantity, int $orderId): void

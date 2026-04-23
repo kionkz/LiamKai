@@ -30,7 +30,7 @@
       </div>
       <div class="stat-card">
         <p class="stat-label">Total Value</p>
-        <p class="stat-value">₱{{ totalValue.toFixed(2) }}</p>
+        <p class="stat-value">{{ formatCurrency(totalValue) }}</p>
       </div>
       <div class="stat-card">
         <p class="stat-label">Suppliers</p>
@@ -153,7 +153,7 @@
                   <span v-if="!(po.purchase_order_items || []).length" class="more-tag">—</span>
                 </div>
               </td>
-            <td class="amount">₱{{ parseFloat(po.total_amount).toFixed(2) }}</td>
+            <td class="amount">{{ formatCurrency(po.total_amount) }}</td>
             <td>
               <span class="status" :class="po.status">
                 {{ formatStatus(po.status) }}
@@ -252,7 +252,7 @@
             </div>
             <div class="form-group">
               <label>Phone *</label>
-              <input v-model="supplierForm.phone" type="text" required placeholder="Phone number">
+              <input v-model="supplierForm.phone" type="text" inputmode="numeric" maxlength="11" required placeholder="09XXXXXXXXX" @input="normalizeSupplierPhone">
             </div>
             <div class="form-group">
               <label>Address *</label>
@@ -290,7 +290,7 @@
             </div>
             <div class="detail-row">
               <label>Total Amount:</label>
-              <span class="amount">₱{{ parseFloat(viewingPO.total_amount).toFixed(2) }}</span>
+              <span class="amount">{{ formatCurrency(viewingPO.total_amount) }}</span>
             </div>
             <div class="detail-row">
               <label>Expected Delivery:</label>
@@ -327,8 +327,8 @@
                               <tr v-for="item in viewingPO.purchase_order_items" :key="item.id">
                 <td>{{ item.product?.name || 'N/A' }}</td>
                 <td class="center">{{ item.quantity }}</td>
-                <td class="amount">₱{{ parseFloat(item.purchase_price ?? item.unit_cost ?? 0).toFixed(2) }}</td>
-                <td class="amount">₱{{ ((parseFloat(item.quantity) || 0) * (parseFloat(item.purchase_price ?? item.unit_cost ?? 0))).toFixed(2) }}</td>
+                <td class="amount">{{ formatCurrency(item.purchase_price ?? item.unit_cost ?? 0) }}</td>
+                <td class="amount">{{ formatCurrency((parseFloat(item.quantity) || 0) * (parseFloat(item.purchase_price ?? item.unit_cost ?? 0))) }}</td>
               </tr>
             </tbody>
           </table>
@@ -398,6 +398,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
+import { formatPeso } from '../../utils/currency';
 import { exportReceiptPdf } from '../../utils/receiptPdf';
 
 const router = useRouter();
@@ -441,6 +442,10 @@ const supplierForm = ref({
   address: '',
   notes: '',
 });
+
+const normalizeSupplierPhone = () => {
+  supplierForm.value.phone = String(supplierForm.value.phone || '').replace(/\D/g, '').slice(0, 11);
+};
 
 // Computed Properties
 const pendingCount = computed(() => {
@@ -531,10 +536,10 @@ const goToCreatePO = () => {
     warningModalConfig.value = {
       type: 'products',
       message: 'You need to add products to your inventory before you can create a purchase order.',
-      actionText: 'Go to Products',
+      actionText: 'Go to Stock on Hand',
       action: () => {
         showWarningModal.value = false;
-        router.push('/products');
+        router.push({ name: 'InventoryView', query: { newProduct: '1' } });
       }
     };
     showWarningModal.value = true;
@@ -629,7 +634,7 @@ const receivePO = (po = selectedPurchaseOrder.value) => {
   router.push(`/purchasing/receive/${po.id}`);
 };
 
-const formatCurrency = (value) => `₱${Number(value || 0).toFixed(2)}`;
+const formatCurrency = formatPeso;
 
 const latestPurchasePayment = (po) => {
   const payments = po?.payments || [];

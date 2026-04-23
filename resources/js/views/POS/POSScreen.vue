@@ -96,6 +96,7 @@
         </div>
 
         <div v-if="cart.length > 0" class="cart-summary">
+          <p v-if="transactionError" class="transaction-error">{{ transactionError }}</p>
           <div class="summary-row">
             <span>Subtotal:</span>
             <span>{{ formatCurrency(calculateSubtotal()) }}</span>
@@ -119,8 +120,8 @@
           <div class="cart-actions">
             <button type="button" @click="clearCart" class="btn btn-secondary">Clear</button>
             <button type="button" @click="completeTransaction" class="btn btn-primary"
-              :disabled="paymentMethod === 'gcash' && !gcashRef.trim()">
-              Complete & Print
+              :disabled="submittingTransaction || (paymentMethod === 'gcash' && !gcashRef.trim())">
+              {{ submittingTransaction ? 'Recording...' : 'Complete & Print' }}
             </button>
           </div>
         </div>
@@ -169,6 +170,7 @@ import { computed, nextTick, onMounted, ref } from 'vue';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
 import { useAuthStore } from '../../stores/authStore';
+import { formatPhp } from '../../utils/currency';
 import { exportReceiptPdf } from '../../utils/receiptPdf';
 import { resolveRetailPrice } from '../../utils/pricing';
 
@@ -181,6 +183,8 @@ const products = ref([]);
 const loadingProducts = ref(false);
 const loadError = ref('');
 const lastReceipt = ref(null);
+const submittingTransaction = ref(false);
+const transactionError = ref('');
 
 const qtyModal = ref({ open: false, product: null, qty: 1 });
 const qtyModalError = ref('');
@@ -339,20 +343,30 @@ const clearCart = () => {
 
 const calculateSubtotal = () => cart.value.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
-const formatCurrency = (amount) => `PHP ${Number(amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const formatCurrency = formatPhp;
 
 const formatPaymentMethodLabel = (method) => {
   const labels = { cash: 'Cash', gcash: 'GCash' };
   return labels[method] || String(method || '').toUpperCase();
 };
 
-const buildReceiptData = () => {
+const buildReceiptData = (transaction = null) => {
   const issuedAt = new Date();
   const subtotal = calculateSubtotal();
+  const order = transaction?.order || null;
+  const payment = transaction?.payment || null;
 
   return {
-    receiptNumber: `POS-${issuedAt.getFullYear()}${String(issuedAt.getMonth() + 1).padStart(2, '0')}${String(issuedAt.getDate()).padStart(2, '0')}-${issuedAt.getTime().toString().slice(-6)}`,
-    issuedAt: issuedAt.toLocaleString('en-PH', {
+    receiptNumber: payment?.reference || `POS-${issuedAt.getFullYear()}${String(issuedAt.getMonth() + 1).padStart(2, '0')}${String(issuedAt.getDate()).padStart(2, '0')}-${issuedAt.getTime().toString().slice(-6)}`,
+    orderNumber: order?.id ? `#${String(order.id).padStart(4, '0')}` : null,
+    issuedAt: order?.created_at ? new Date(order.created_at).toLocaleString('en-PH', {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }) : issuedAt.toLocaleString('en-PH', {
       year: 'numeric',
       month: 'short',
       day: '2-digit',
@@ -361,16 +375,16 @@ const buildReceiptData = () => {
       second: '2-digit',
     }),
     cashier: authStore.user?.name || authStore.user?.username || 'Cashier',
-    paymentMethod: formatPaymentMethodLabel(paymentMethod.value),
-    gcashRef: paymentMethod.value === 'gcash' ? gcashRef.value.trim() : null,
-    items: cart.value.map((item) => ({
-      name: item.name,
-      qty: Number(item.qty || 0),
-      price: Number(item.price || 0),
-      subtotal: Number(item.price || 0) * Number(item.qty || 0),
+    paymentMethod: formatPaymentMethodLabel(payment?.payment_method || paymentMethod.value),
+    gcashRef: (payment?.payment_method || paymentMethod.value) === 'gcash' ? (payment?.reference || gcashRef.value.trim()) : null,
+    items: (order?.items || cart.value).map((item) => ({
+      name: item.name || item.product?.name || 'Product',
+      qty: Number(item.qty ?? item.quantity ?? 0),
+      price: Number(item.price ?? item.unit_price ?? 0),
+      subtotal: Number(item.subtotal ?? (Number(item.price || 0) * Number(item.qty || 0))),
     })),
-    subtotal,
-    total: subtotal,
+    subtotal: Number(order?.total_amount ?? payment?.amount ?? subtotal),
+    total: Number(order?.total_amount ?? payment?.amount ?? subtotal),
   };
 };
 
@@ -381,6 +395,7 @@ const printReceipt = (receipt = buildReceiptData()) => {
     filename: `${receipt.receiptNumber}.pdf`,
     meta: [
       { label: 'Receipt No.', value: receipt.receiptNumber },
+      ...(receipt.orderNumber ? [{ label: 'Order No.', value: receipt.orderNumber }] : []),
       { label: 'Date', value: receipt.issuedAt },
       { label: 'Cashier', value: receipt.cashier },
       { label: 'Payment', value: receipt.paymentMethod },
@@ -399,16 +414,40 @@ const printReceipt = (receipt = buildReceiptData()) => {
   });
 };
 
-const completeTransaction = () => {
+const completeTransaction = async () => {
   if (!cart.value.length) return;
   if (paymentMethod.value === 'gcash' && !gcashRef.value.trim()) return;
 
-  const receipt = buildReceiptData();
-  lastReceipt.value = receipt;
-  printReceipt(receipt);
-  clearCart();
-  gcashRef.value = '';
-  paymentMethod.value = 'cash';
+  submittingTransaction.value = true;
+  transactionError.value = '';
+
+  try {
+    const response = await api.post('/orders/pos', {
+      payment_method: paymentMethod.value,
+      reference: paymentMethod.value === 'gcash' ? gcashRef.value.trim() : null,
+      items: cart.value.map((item) => ({
+        product_id: item.id,
+        quantity: Number(item.qty || 0),
+      })),
+    });
+
+    if (!response.data?.success) {
+      transactionError.value = response.data?.message || 'Failed to record POS transaction.';
+      return;
+    }
+
+    const receipt = buildReceiptData(response.data.data);
+    lastReceipt.value = receipt;
+    printReceipt(receipt);
+    clearCart();
+    gcashRef.value = '';
+    paymentMethod.value = 'cash';
+    await loadProducts();
+  } catch (error) {
+    transactionError.value = error.response?.data?.error || error.response?.data?.message || 'Failed to record POS transaction.';
+  } finally {
+    submittingTransaction.value = false;
+  }
 };
 
 onMounted(() => {
@@ -860,6 +899,17 @@ onMounted(() => {
   font-weight: 700;
   font-size: 18px;
   color: #e57c2a;
+}
+
+.transaction-error {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .gcash-ref-group {

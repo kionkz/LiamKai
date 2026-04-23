@@ -48,7 +48,7 @@ class SupplierController extends Controller
                 'name' => 'required|string|max:255|unique:suppliers,name',
                 'contact_person' => 'required|string|max:255',
                 'email' => 'required|email|unique:suppliers,email',
-                'phone' => 'required|string|max:20',
+                'phone' => ['required', 'regex:/^\d{11}$/'],
                 'address' => 'required|string',
                 'notes' => 'nullable|string',
             ]);
@@ -119,7 +119,7 @@ class SupplierController extends Controller
                 'name' => 'sometimes|required|string|max:255|unique:suppliers,name,' . $id,
                 'contact_person' => 'sometimes|required|string|max:255',
                 'email' => 'sometimes|required|email|unique:suppliers,email,' . $id,
-                'phone' => 'sometimes|required|string|max:20',
+                'phone' => ['sometimes', 'required', 'regex:/^\d{11}$/'],
                 'address' => 'sometimes|required|string',
                 'notes' => 'nullable|string',
             ]);

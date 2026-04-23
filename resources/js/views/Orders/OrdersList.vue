@@ -81,7 +81,7 @@
             <td><span class="badge" :class="order.type">{{ formatPricingType(order.type) }}</span></td>
             <td><span class="badge" :class="order.fulfillment_type">{{ formatFulfillmentType(order.fulfillment_type) }}</span></td>
             <td>{{ formatScheduled(order.scheduled_for) }}</td>
-            <td>₱{{ Number(order.total_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</td>
+            <td>{{ formatMoney(order.total_amount) }}</td>
             <td><span class="pay-status" :class="order.payment_status">{{ formatPaymentStatus(order.payment_status) }}</span></td>
             <td><span class="status" :class="order.fulfillment_status">{{ formatFulfillmentStatus(order.fulfillment_status) }}</span></td>
             <td><span class="status" :class="order.order_status">{{ formatOrderStatus(order.order_status) }}</span></td>
@@ -135,8 +135,8 @@
                 <tr v-for="item in (selectedOrder.order_items || [])" :key="item.id">
                   <td>{{ item.product?.name || 'Unknown' }}</td>
                   <td class="text-right">{{ Number(item.quantity).toLocaleString() }}</td>
-                  <td class="text-right">₱{{ Number(item.unit_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) }}</td>
-                  <td class="text-right">₱{{ Number(item.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) }}</td>
+                  <td class="text-right">{{ formatMoney(item.unit_price) }}</td>
+                  <td class="text-right">{{ formatMoney(item.subtotal) }}</td>
                 </tr>
                 <tr v-if="!selectedOrder.order_items || selectedOrder.order_items.length === 0">
                   <td colspan="4" class="no-items">No items found.</td>
@@ -145,7 +145,7 @@
               <tfoot>
                 <tr class="summary-total-row">
                   <td colspan="3"><strong>Total</strong></td>
-                  <td class="text-right"><strong>₱{{ Number(selectedOrder.total_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) }}</strong></td>
+                  <td class="text-right"><strong>{{ formatMoney(selectedOrder.total_amount) }}</strong></td>
                 </tr>
               </tfoot>
             </table>
@@ -274,6 +274,7 @@ import autoTable from 'jspdf-autotable';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
 import CreateOrder from './CreateOrder.vue';
+import { formatPhp, formatPeso } from '../../utils/currency';
 import { getApiErrorMessage } from '../../utils/orderValidation';
 import { resolveOrderUnitPrice } from '../../utils/pricing';
 
@@ -336,7 +337,7 @@ const selectedOrderEditLockReason = computed(() => {
   return 'This order can no longer be edited.';
 });
 
-const formatMoney = (value) => `₱${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const formatMoney = formatPeso;
 
 const formatOrderDate = (value) => {
   if (!value) return '--';
@@ -601,7 +602,7 @@ const printReceipt = async () => {
   }
 
   const doc = new jsPDF();
-  const formatMoney = (val) => `PHP ${Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatReceiptMoney = formatPhp;
 
   // Header
   doc.setFontSize(18);
@@ -637,12 +638,12 @@ const printReceipt = async () => {
       item.product?.name || `Product #${item.product_id}`,
       Number(item.quantity || 0).toFixed(2),
       item.unit || item.product?.unit_of_measure || '',
-      formatMoney(item.unit_price),
-      formatMoney(item.subtotal ?? item.total),
+      formatReceiptMoney(item.unit_price),
+      formatReceiptMoney(item.subtotal ?? item.total),
     ]),
     styles: { fontSize: 9, cellPadding: 4 },
     headStyles: { fillColor: [229, 124, 42], textColor: 255 },
-    foot: [['', '', '', 'TOTAL', formatMoney(order.total_amount)]],
+    foot: [['', '', '', 'TOTAL', formatReceiptMoney(order.total_amount)]],
     footStyles: { fillColor: [255, 247, 237], textColor: [124, 45, 18], fontStyle: 'bold' },
   });
 

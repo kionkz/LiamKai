@@ -46,7 +46,7 @@
             </div>
             <div class="info-row">
               <span class="lbl">Total Amount</span>
-              <span class="amount">₱{{ formatAmount(order.total_amount) }}</span>
+              <span class="amount">{{ formatAmount(order.total_amount) }}</span>
             </div>
             <div class="info-row">
               <span class="lbl">Payment Status</span>
@@ -73,8 +73,8 @@
               <tr v-for="item in order.items" :key="item.id">
                 <td>{{ item.product?.name || 'Product' }}</td>
                 <td>{{ item.quantity }} {{ item.unit || '' }}</td>
-                <td>₱{{ formatAmount(item.unit_price) }}</td>
-                <td>₱{{ formatAmount(item.subtotal || item.total) }}</td>
+                <td>{{ formatAmount(item.unit_price) }}</td>
+                <td>{{ formatAmount(item.subtotal || item.total) }}</td>
               </tr>
             </tbody>
           </table>
@@ -124,6 +124,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../api';
+import { formatPeso } from '../../utils/currency';
 
 const route = useRoute();
 
@@ -198,8 +199,7 @@ const formatDateTimeLocal = (value) => {
   return d.toISOString().slice(0, 16);
 };
 
-const formatAmount = (val) =>
-  Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatAmount = formatPeso;
 
 const loadOrder = async () => {
   loading.value = true;

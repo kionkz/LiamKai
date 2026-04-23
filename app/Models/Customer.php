@@ -26,15 +26,7 @@ class Customer extends Model
 
     public function setPhoneAttribute($value): void
     {
-        $digits = preg_replace('/\D+/', '', (string) $value);
-
-        if (str_starts_with($digits, '09') && strlen($digits) === 11) {
-            $digits = '63' . substr($digits, 1);
-        } elseif (str_starts_with($digits, '9') && strlen($digits) === 10) {
-            $digits = '63' . $digits;
-        }
-
-        $this->attributes['phone'] = str_starts_with($digits, '63') ? '+' . $digits : (string) $value;
+        $this->attributes['phone'] = preg_replace('/\D+/', '', (string) $value);
     }
 
     // Relationships

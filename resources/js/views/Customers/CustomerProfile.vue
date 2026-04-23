@@ -42,7 +42,7 @@
             </div>
             <div class="field-row">
               <label>Phone</label>
-              <input v-if="isEditingCustomer" v-model="editForm.phone" class="form-input" type="tel" @blur="handlePhoneBlur" />
+              <input v-if="isEditingCustomer" v-model="editForm.phone" class="form-input" type="tel" inputmode="numeric" maxlength="11" @input="normalizePhoneField" @blur="handlePhoneBlur" />
               <span v-else>{{ customer.phone }}</span>
               <small v-if="shouldShowFieldError('phone')">{{ fieldErrors.phone }}</small>
             </div>
@@ -213,6 +213,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
+import { formatPeso } from '../../utils/currency';
 import { getApiErrorMessage } from '../../utils/orderValidation';
 import { resolveOrderUnitPrice } from '../../utils/pricing';
 
@@ -254,7 +255,7 @@ const fieldErrors = computed(() => {
   if (!editForm.value.name.trim()) errors.name = 'Name is required.';
   if (!editForm.value.address.trim()) errors.address = 'Address is required.';
   if (editForm.value.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.value.email)) errors.email = 'Enter a valid email address.';
-  if (!/^\+639\d{9}$/.test(normalizePhPhone(editForm.value.phone))) errors.phone = 'Use Philippine format +639XXXXXXXXX.';
+  if (!/^\d{11}$/.test(normalizePhPhone(editForm.value.phone))) errors.phone = 'Phone number must contain exactly 11 digits.';
   return errors;
 });
 
@@ -265,11 +266,7 @@ const currentBalance = computed(() => orders.value
   .reduce((sum, order) => sum + Number(order.outstanding_balance || 0), 0));
 
 const normalizePhPhone = (value) => {
-  const digits = String(value || '').replace(/\D/g, '');
-  if (digits.startsWith('09') && digits.length === 11) return `+63${digits.slice(1)}`;
-  if (digits.startsWith('9') && digits.length === 10) return `+63${digits}`;
-  if (digits.startsWith('63') && digits.length === 12) return `+${digits}`;
-  return String(value || '');
+  return String(value || '').replace(/\D/g, '').slice(0, 11);
 };
 
 const normalizePhoneField = () => {
@@ -291,7 +288,7 @@ const shouldShowFieldError = (field) => {
     && customerEditSubmitted.value;
 };
 
-const formatCurrency = (value) => `₱${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const formatCurrency = formatPeso;
 const formatNumber = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const formatDate = (value) => value ? new Date(value).toLocaleDateString() : '-';
 const formatStatus = (value) => String(value || '').replace('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());

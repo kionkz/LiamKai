@@ -24,7 +24,7 @@ class StoreCustomerRequest extends FormRequest
         return [
             'name' => 'required|string|max:255',
             'email' => 'nullable|email|unique:customers,email',
-            'phone' => ['required', 'regex:/^\+639\d{9}$/'],
+            'phone' => ['required', 'regex:/^\d{11}$/'],
             'address' => 'required|string',
             'type' => 'required|in:retail,wholesale',
         ];
@@ -32,21 +32,10 @@ class StoreCustomerRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        if (!$this->has('phone')) {
-            return;
-        }
-
-        $digits = preg_replace('/\D+/', '', (string) $this->input('phone'));
         $type = strtolower((string) $this->input('type', 'retail'));
 
-        if (str_starts_with($digits, '09') && strlen($digits) === 11) {
-            $digits = '63' . substr($digits, 1);
-        } elseif (str_starts_with($digits, '9') && strlen($digits) === 10) {
-            $digits = '63' . $digits;
-        }
-
         $this->merge([
-            'phone' => str_starts_with($digits, '63') ? '+' . $digits : $this->input('phone'),
+            'phone' => preg_replace('/\D+/', '', (string) $this->input('phone')),
             'type' => in_array($type, ['retail', 'wholesale'], true) ? $type : $this->input('type'),
         ]);
     }
@@ -54,7 +43,7 @@ class StoreCustomerRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'phone.regex' => 'Phone number must be in Philippine format (+639XXXXXXXXX).',
+            'phone.regex' => 'Phone number must contain exactly 11 digits.',
             'type.in' => 'Customer type must be Retail or Wholesale.',
         ];
     }

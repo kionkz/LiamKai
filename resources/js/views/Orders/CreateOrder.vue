@@ -119,7 +119,7 @@
             </div>
             <div class="product-field product-field-subtotal">
               <label class="mini-label">Subtotal</label>
-              <p class="product-subtotal">₱{{ (Number(item.quantity || 0) * Number(item.unit_price || 0)).toFixed(2) }}</p>
+              <p class="product-subtotal">{{ formatCurrency(Number(item.quantity || 0) * Number(item.unit_price || 0)) }}</p>
             </div>
             <div class="product-field product-field-remove">
               <label class="mini-label">Remove</label>
@@ -137,11 +137,11 @@
           <div class="summary">
             <div class="summary-row">
               <span>{{ customerPriceLabel }} subtotal</span>
-              <span>₱{{ calculateSubtotal().toFixed(2) }}</span>
+              <span>{{ formatCurrency(calculateSubtotal()) }}</span>
             </div>
             <div class="summary-row total">
               <span>Total</span>
-              <span>₱{{ calculateSubtotal().toFixed(2) }}</span>
+              <span>{{ formatCurrency(calculateSubtotal()) }}</span>
             </div>
           </div>
         </div>
@@ -168,6 +168,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
+import { formatPeso } from '../../utils/currency';
 import { findCustomerPricingQuantityViolation, getApiErrorMessage, getCustomerPricingRuleMessage } from '../../utils/orderValidation';
 import { resolveCustomerPriceLabel, resolveDiscountedPrice, resolveOrderUnitPrice, resolveRetailPrice } from '../../utils/pricing';
 
@@ -255,7 +256,7 @@ const findProduct = (productId) => products.value.find((item) => String(item.id)
 const getItemUnit = (item) => findProduct(item.product_id)?.unit_of_measure || 'kg';
 const getItemRetailPrice = (item) => resolveRetailPrice(findProduct(item.product_id));
 const getItemDiscountPercent = (item) => findProduct(item.product_id) ? Number(findProduct(item.product_id)?.pricing?.[0]?.discount_percent ?? findProduct(item.product_id)?.discount_percent ?? 0) : 0;
-const formatCurrency = (value) => `₱${Number(value || 0).toFixed(2)}`;
+const formatCurrency = formatPeso;
 const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
 
 const addProduct = () => {

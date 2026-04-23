@@ -96,6 +96,7 @@ Route::middleware(['auth:sanctum', 'role:admin,delivery'])->group(function () {
 Route::prefix('orders')->middleware(['auth:sanctum', 'role:admin,sales'])->group(function () {
     Route::get('/', [OrderController::class, 'index'])->name('orders.index');
     Route::post('/', [OrderController::class, 'store'])->name('orders.store');
+    Route::post('pos', [OrderController::class, 'storePosTransaction'])->name('orders.pos.store');
     Route::get('{order}', [OrderController::class, 'show'])->name('orders.show');
     Route::put('{order}', [OrderController::class, 'update'])->name('orders.update');
     Route::patch('{order}', [OrderController::class, 'update'])->name('orders.update.patch');

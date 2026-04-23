@@ -367,10 +367,13 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
+import { formatPeso } from '../../utils/currency';
 import { calculateDiscountedPriceFromAmount, discountAmountToPercent, normalizeDiscountPercent, resolveDiscountAmount, resolveDiscountedPrice, resolveRetailPrice } from '../../utils/pricing';
 
+const route = useRoute();
 const searchQuery = ref('');
 const selectedCategoryId = ref('all');
 const sortBy = ref('product_name');
@@ -420,7 +423,7 @@ const normalizeUnitOfMeasure = (value) => {
   return value || '';
 };
 
-const formatCurrency = (val) => val != null ? '\u20B1' + Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-';
+const formatCurrency = (val) => val != null ? formatPeso(val) : '-';
 const formatNumber = (val) => Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatSku = (value) => value || '—';
 const formatDate = (value) => value ? new Date(value).toLocaleDateString() : '-';
@@ -686,6 +689,10 @@ const createProduct = async () => {
 onMounted(async () => {
   await fetchCategories();
   await fetchProducts(1);
+
+  if (route.query.newProduct === '1') {
+    showAddProductModal.value = true;
+  }
 });
 
 watch(batchExpirationFilter, () => {

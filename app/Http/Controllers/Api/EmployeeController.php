@@ -85,7 +85,7 @@ class EmployeeController extends Controller
             $validated = $request->validate([
                 'name' => 'required|string|max:255',
                 'email' => 'required|email|unique:employees,email',
-                'phone' => 'nullable|string|max:20',
+                'phone' => ['nullable', 'regex:/^\d{11}$/'],
                 'role' => 'required|in:admin,sales,delivery,inventory,purchasing',
                 'address' => 'nullable|string|max:500',
                 'status' => 'nullable|in:active,inactive',
@@ -152,7 +152,7 @@ class EmployeeController extends Controller
             $validated = $request->validate([
                 'name' => 'sometimes|required|string|max:255',
                 'email' => 'sometimes|required|email|unique:employees,email,' . $id,
-                'phone' => 'nullable|string|max:20',
+                'phone' => ['nullable', 'regex:/^\d{11}$/'],
                 'role' => 'sometimes|required|in:admin,sales,delivery,inventory,purchasing',
                 'address' => 'nullable|string|max:500',
                 'status' => 'sometimes|required|in:active,inactive',
@@ -187,17 +187,19 @@ class EmployeeController extends Controller
     }
 
     /**
-     * Remove the specified employee.
+     * Deactivate the specified employee instead of deleting the record.
      */
     public function destroy(string $id): JsonResponse
     {
         try {
-            $employee = Employee::findOrFail($id);
-            $employee->delete();
+            $employee = Employee::with('user')->findOrFail($id);
+            $employee->update(['status' => 'inactive']);
+            $this->syncAccountStatusWithEmployee($employee);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Employee deleted successfully',
+                'message' => 'Employee deactivated successfully',
+                'data' => $employee->fresh('user'),
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
@@ -207,7 +209,7 @@ class EmployeeController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error deleting employee',
+                'message' => 'Error deactivating employee',
                 'error' => $e->getMessage(),
             ], 500);
         }

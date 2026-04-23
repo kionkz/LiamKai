@@ -201,10 +201,8 @@ class PaymentController extends Controller
             $totalAmount = (float) $order->total_amount;
 
             $method = $request->input('payment_method', 'cash');
-            $isCredit = $method === 'credit';
 
-            // Credit = deferred payment (pay later). Non-credit payments cannot exceed outstanding balance.
-            if (!$isCredit && (float) $request->amount > $currentOutstanding) {
+            if ((float) $request->amount > $currentOutstanding) {
                 return response()->json([
                     'success' => false,
                     'message' => "Payment amount exceeds outstanding balance. Balance: {$order->outstanding_balance}",
@@ -224,22 +222,16 @@ class PaymentController extends Controller
                 'status' => 'completed',
             ]);
 
-            // Credit payments do not reduce outstanding balance — they are recorded IOUs.
-            // Only cash/gcash/bank/check payments settle the debt.
-            if (!$isCredit) {
-                $newOutstanding = max($currentOutstanding - (float) $request->amount, 0);
-                $order->update([
-                    'outstanding_balance' => $newOutstanding,
-                    'payment_status' => $this->resolvePaymentStatus(
-                        totalAmount: $totalAmount,
-                        remainingBalance: $newOutstanding,
-                        paymentMethod: $method,
-                        existingPaymentCount: $order->payments->count() + 1,
-                    ),
-                ]);
-            } else {
-                $newOutstanding = $currentOutstanding;
-            }
+            $newOutstanding = max($currentOutstanding - (float) $request->amount, 0);
+            $order->update([
+                'outstanding_balance' => $newOutstanding,
+                'payment_status' => $this->resolvePaymentStatus(
+                    totalAmount: $totalAmount,
+                    remainingBalance: $newOutstanding,
+                    paymentMethod: $method,
+                    existingPaymentCount: $order->payments->count() + 1,
+                ),
+            ]);
 
             DB::commit();
 

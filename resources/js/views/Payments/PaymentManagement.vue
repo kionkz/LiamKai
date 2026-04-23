@@ -201,6 +201,7 @@
 import { computed, onMounted, ref } from 'vue';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
+import { formatPhp } from '../../utils/currency';
 
 const orders = ref([]);
 const loading = ref(false);
@@ -234,7 +235,6 @@ const paymentMethodOptions = [
   { value: 'gcash', label: 'GCash' },
   { value: 'check', label: 'Check' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'credit', label: 'Credit' },
 ];
 
 const selectedOrder = computed(() => orders.value.find((order) => order.id === selectedOrderId.value) || null);
@@ -255,7 +255,7 @@ const paginationEnd = computed(() => Math.min(
   pagination.value.total
 ));
 
-const formatCurrency = (value) => `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const formatCurrency = formatPhp;
 const formatMethod = (value) => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 const formatUser = (user) => user?.name || user?.username || '--';
 const formatStatus = (value) => {

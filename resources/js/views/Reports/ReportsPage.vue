@@ -291,6 +291,7 @@ import { computed, ref } from 'vue';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import api from '../../api';
+import { formatPeso } from '../../utils/currency';
 
 const selectedReport = ref('sales');
 const reportPeriod = ref('month');
@@ -453,7 +454,6 @@ const paginatedPaymentMethods = computed(() => paginateRows(sortedPaymentMethods
 const paginatedInventoryItems = computed(() => paginateRows(sortedInventoryItems.value));
 const paginatedTopCustomers = computed(() => paginateRows(sortedTopCustomers.value));
 
-const formatPeso = (value) => `₱${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatQuantity = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const formatSku = (value) => value || '—';
 

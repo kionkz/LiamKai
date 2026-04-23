@@ -71,7 +71,7 @@
                     <input v-model="item.unit_cost" type="number" min="0" step="0.01" placeholder="₱0.00" class="form-input number" @input="item.unit_cost = Math.max(0, parseFloat(item.unit_cost) || 0)" />
                   </td>
                   <td class="subtotal-cell">
-                    <div class="subtotal">₱{{ ((parseFloat(item.quantity) || 0) * (parseFloat(item.unit_cost) || 0)).toFixed(2) }}</div>
+                    <div class="subtotal">{{ formatCurrency((parseFloat(item.quantity) || 0) * (parseFloat(item.unit_cost) || 0)) }}</div>
                   </td>
                   <td>
                     <button type="button" @click="removeProduct(idx)" class="btn-remove">
@@ -107,11 +107,11 @@
           <div class="summary-card">
             <div class="summary-row">
               <span class="summary-label">Subtotal:</span>
-              <span class="summary-value">₱{{ subtotal.toFixed(2) }}</span>
+              <span class="summary-value">{{ formatCurrency(subtotal) }}</span>
             </div>
             <div class="summary-row border-top">
               <span class="summary-label-total">Total PO Amount:</span>
-              <span class="summary-value-total">₱{{ subtotal.toFixed(2) }}</span>
+              <span class="summary-value-total">{{ formatCurrency(subtotal) }}</span>
             </div>
           </div>
         </div>
@@ -143,6 +143,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
+import { formatPeso } from '../../utils/currency';
 
 const router = useRouter();
 const route = useRoute();
@@ -176,6 +177,8 @@ const purchaseProductOptions = computed(() => products.value.map((product) => ({
   value: product.id,
   label: product.name,
 })));
+
+const formatCurrency = formatPeso;
 
 // Computed Properties
 const subtotal = computed(() => {

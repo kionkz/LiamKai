@@ -193,6 +193,7 @@ const formatDate = (dateStr) => {
 };
 
 const getTypeLabel = (movement) => {
+  if (movement.movement_type === 'stock_out_pos') return 'POS Stock Out';
   if (movement.movement_type === 'defect') return 'Defect';
   if (movement.movement_type === 'shortage') return 'Shortage';
   if (movement.movement_type === 'theft') return 'Theft/Loss';

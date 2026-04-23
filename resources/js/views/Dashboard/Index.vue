@@ -177,6 +177,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
 import { useAuthStore } from '../../stores/authStore';
+import { formatPeso } from '../../utils/currency';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -213,10 +214,7 @@ const summary = ref({
   },
 });
 
-const formatCurrency = (val) => {
-  const n = Number(val) || 0;
-  return '\u20B1' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
+const formatCurrency = formatPeso;
 
 const formatQuantity = (value) => `${Number(value || 0).toFixed(2)} kg`;
 

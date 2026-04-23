@@ -138,7 +138,7 @@
               <td class="address-cell">{{ order.delivery_address || '—' }}</td>
               <td>{{ formatDateTime(order.scheduled_for) }}</td>
               <td>{{ formatDateTime(order.actual_fulfillment_at) }}</td>
-              <td class="amount-cell">₱{{ formatAmount(order.total_amount) }}</td>
+              <td class="amount-cell">{{ formatAmount(order.total_amount) }}</td>
               <td>
                 <span class="status-pill" :class="order.status">{{ statusLabel(order.status, order.fulfillment_type) }}</span>
               </td>
@@ -166,6 +166,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import api from '../../api';
+import { formatPeso } from '../../utils/currency';
 
 const orders = ref([]);
 const loading = ref(false);
@@ -218,8 +219,7 @@ const emptyStateLabel = computed(() => {
   return `No orders scheduled for ${formatDateDisplay(appliedDateFrom.value)}.`;
 });
 
-const formatAmount = (val) =>
-  Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatAmount = formatPeso;
 
 const userName = (user) => user?.name || user?.username || 'Unknown user';
 

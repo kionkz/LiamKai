@@ -80,7 +80,7 @@
             <td>
               <template v-if="customer.type === 'wholesale'">
                 <div class="credit-cell">
-                  <span class="credit-used-label">Unpaid: ₱{{ Number(customer.credit_used || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) }}</span>
+                  <span class="credit-used-label">Unpaid: {{ formatCurrency(customer.credit_used) }}</span>
                   <span v-if="customer.credit_limit_exceeded" class="badge credit-exceeded">Blocked</span>
                   <span v-else class="badge credit-ok">OK</span>
                 </div>
@@ -124,7 +124,7 @@
 
           <div class="form-group">
             <label for="phone">Phone *</label>
-            <input v-model="customerForm.phone" type="tel" id="phone" placeholder="+639XXXXXXXXX" required @blur="normalizePhoneField" />
+            <input v-model="customerForm.phone" type="tel" inputmode="numeric" maxlength="11" id="phone" placeholder="09XXXXXXXXX" required @input="normalizePhoneField" />
           </div>
 
           <div class="form-group">
@@ -162,6 +162,7 @@
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
+import { formatPeso } from '../../utils/currency';
 import { getApiErrorMessage } from '../../utils/orderValidation';
 
 const router = useRouter();
@@ -176,6 +177,7 @@ const searchQuery = ref('');
 const sortBy = ref('name');
 const sortDirection = ref('asc');
 const pagination = ref({ current_page: 1, last_page: 1, per_page: 15, total: 0 });
+const formatCurrency = formatPeso;
 
 const customerForm = ref({
   name: '',
@@ -186,11 +188,7 @@ const customerForm = ref({
 });
 
 const normalizePhPhone = (value) => {
-  const digits = String(value || '').replace(/\D/g, '');
-  if (digits.startsWith('09') && digits.length === 11) return `+63${digits.slice(1)}`;
-  if (digits.startsWith('9') && digits.length === 10) return `+63${digits}`;
-  if (digits.startsWith('63') && digits.length === 12) return `+${digits}`;
-  return value;
+  return String(value || '').replace(/\D/g, '').slice(0, 11);
 };
 
 const normalizePhoneField = () => {
