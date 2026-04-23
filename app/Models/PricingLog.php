@@ -40,7 +40,7 @@ class PricingLog extends Model
         return $this->belongsTo(Product::class);
     }
 
-    public function supplier(): BelongsTo
+    public function productSupplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class, 'product_supplier_id');
     }

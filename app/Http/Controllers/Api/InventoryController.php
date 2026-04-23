@@ -149,7 +149,7 @@ class InventoryController extends Controller
                 ]);
                 
                 // Update last_restock_date on stock-in movements
-                if ($movementType === 'stock_in') {
+                if ($movementType === 'stock_in' && Schema::hasColumn('inventory', 'last_restock_date')) {
                     $inventory->update(['last_restock_date' => now()]);
                 }
             }

@@ -52,7 +52,7 @@ class AuthController extends Controller
         $token = $user->createToken('auth_token')->plainTextToken;
 
         // Record login session
-        if (Schema::hasTable('login_sessions')) {
+        if ($this->loginSessionsEnabled()) {
             $user->loginSessions()->create(['login_time' => now()]);
         }
 
@@ -76,7 +76,7 @@ class AuthController extends Controller
         $user = $request->user();
 
         // Close the most recent open login session
-        if (Schema::hasTable('login_sessions')) {
+        if ($this->loginSessionsEnabled()) {
             $user->loginSessions()
                 ->whereNull('logout_time')
                 ->latest('login_time')
@@ -208,5 +208,10 @@ class AuthController extends Controller
                 'must_change_password' => false,
             ],
         ]);
+    }
+
+    private function loginSessionsEnabled(): bool
+    {
+        return Schema::hasTable('login_sessions');
     }
 }
