@@ -138,16 +138,18 @@ class InventoryController extends Controller
                 }
 
                 $inventory->stockMovements()->create([
-                    'type' => $movementType,
-                    'quantity' => abs($adjustmentQty),
+                    'product_id'    => $inventory->product_id,
+                    'type'          => $movementType,
+                    'quantity'      => abs($adjustmentQty),
                     'movement_type' => 'manual_adjustment',
-                    'reason' => $validated['adjustment_reason'],
-                    'reference' => 'MANUAL-ADJUSTMENT',
-                    'notes' => $movementNotes,
+                    'movement_date' => now()->toDateString(),
+                    'reason'        => $validated['adjustment_reason'],
+                    'reference'     => 'MANUAL-ADJUSTMENT',
+                    'notes'         => $movementNotes,
                 ]);
                 
-                // Keep this conditional for databases that include last_restock_date.
-                if ($movementType === 'stock_in' && Schema::hasColumn('inventory', 'last_restock_date')) {
+                // Update last_restock_date on stock-in movements
+                if ($movementType === 'stock_in') {
                     $inventory->update(['last_restock_date' => now()]);
                 }
             }

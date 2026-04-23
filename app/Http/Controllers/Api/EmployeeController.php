@@ -41,6 +41,8 @@ class EmployeeController extends Controller
                 $query->where(function ($employeeQuery) use ($search) {
                     $employeeQuery
                         ->where('name', 'like', "%{$search}%")
+                        ->orWhere('fname', 'like', "%{$search}%")
+                        ->orWhere('lname', 'like', "%{$search}%")
                         ->orWhere('email', 'like', "%{$search}%")
                         ->orWhere('phone', 'like', "%{$search}%");
                 });
@@ -83,13 +85,23 @@ class EmployeeController extends Controller
     {
         try {
             $validated = $request->validate([
-                'name' => 'required|string|max:255',
-                'email' => 'required|email|unique:employees,email',
-                'phone' => 'nullable|string|max:20',
-                'role' => 'required|in:admin,sales,delivery,inventory,purchasing',
-                'address' => 'nullable|string|max:500',
-                'status' => 'nullable|in:active,inactive',
+                'name'                    => 'nullable|string|max:255',
+                'fname'                   => 'nullable|string|max:255',
+                'lname'                   => 'nullable|string|max:255',
+                'email'                   => 'required|email|unique:employees,email',
+                'phone'                   => 'nullable|string|max:20',
+                'role'                    => 'required|in:admin,sales,delivery,inventory,purchasing',
+                'address'                 => 'nullable|string|max:500',
+                'date_hired'              => 'nullable|date',
+                'status'                  => 'nullable|in:active,inactive',
+                'can_edit_transactions'   => 'nullable|boolean',
+                'view_proof_of_payments'  => 'nullable|boolean',
             ]);
+
+            // Derive name from fname + lname when not explicitly provided
+            if (empty($validated['name']) && (!empty($validated['fname']) || !empty($validated['lname']))) {
+                $validated['name'] = trim(($validated['fname'] ?? '') . ' ' . ($validated['lname'] ?? ''));
+            }
 
             $validated['status'] = $validated['status'] ?? 'active';
 
@@ -150,13 +162,25 @@ class EmployeeController extends Controller
             $employee = Employee::findOrFail($id);
 
             $validated = $request->validate([
-                'name' => 'sometimes|required|string|max:255',
-                'email' => 'sometimes|required|email|unique:employees,email,' . $id,
-                'phone' => 'nullable|string|max:20',
-                'role' => 'sometimes|required|in:admin,sales,delivery,inventory,purchasing',
-                'address' => 'nullable|string|max:500',
-                'status' => 'sometimes|required|in:active,inactive',
+                'name'                   => 'sometimes|nullable|string|max:255',
+                'fname'                  => 'sometimes|nullable|string|max:255',
+                'lname'                  => 'sometimes|nullable|string|max:255',
+                'email'                  => 'sometimes|required|email|unique:employees,email,' . $id,
+                'phone'                  => 'nullable|string|max:20',
+                'role'                   => 'sometimes|required|in:admin,sales,delivery,inventory,purchasing',
+                'address'                => 'nullable|string|max:500',
+                'date_hired'             => 'nullable|date',
+                'status'                 => 'sometimes|required|in:active,inactive',
+                'can_edit_transactions'  => 'nullable|boolean',
+                'view_proof_of_payments' => 'nullable|boolean',
             ]);
+
+            // Sync name when fname/lname is updated
+            if (isset($validated['fname']) || isset($validated['lname'])) {
+                $fname = $validated['fname'] ?? $employee->fname ?? '';
+                $lname = $validated['lname'] ?? $employee->lname ?? '';
+                $validated['name'] = trim($fname . ' ' . $lname);
+            }
 
             $employee->update($validated);
 

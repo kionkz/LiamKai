@@ -19,9 +19,10 @@ class Inventory extends Model
     ];
 
     protected $casts = [
-        'quantity' => 'decimal:2',
-        'quantity_on_hand' => 'decimal:2',
-        'reorder_point' => 'decimal:2',
+        'quantity'          => 'decimal:2',
+        'quantity_on_hand'  => 'decimal:2',
+        'reorder_point'     => 'decimal:2',
+        'last_restock_date' => 'date',
     ];
 
     // Relationships
@@ -30,9 +31,13 @@ class Inventory extends Model
         return $this->belongsTo(Product::class);
     }
 
+    /**
+     * Stock movements linked directly via inventory_id.
+     * Falls back to a product_id join for older records that predate the inventory_id column.
+     */
     public function stockMovements(): HasMany
     {
-        return $this->hasMany(StockMovement::class, 'product_id', 'product_id');
+        return $this->hasMany(StockMovement::class);
     }
 
     public function availableQuantity(): float

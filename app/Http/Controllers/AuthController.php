@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\LoginSession;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -50,6 +51,11 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
+        // Record login session
+        if (Schema::hasTable('login_sessions')) {
+            $user->loginSessions()->create(['login_time' => now()]);
+        }
+
         return response()->json([
             'token' => $token,
             'user' => [
@@ -67,7 +73,19 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        $request->user()->tokens()->delete();
+        $user = $request->user();
+
+        // Close the most recent open login session
+        if (Schema::hasTable('login_sessions')) {
+            $user->loginSessions()
+                ->whereNull('logout_time')
+                ->latest('login_time')
+                ->first()
+                ?->endSession();
+        }
+
+        $user->tokens()->delete();
+
         return response()->json(['message' => 'Logged out successfully']);
     }
 
@@ -107,6 +125,7 @@ class AuthController extends Controller
                 Rule::unique('users', 'email')->ignore($user->id),
             ],
             'password' => ['nullable', 'string', 'min:8'],
+            'contact_number' => ['nullable', 'string', 'max:30'],
         ]);
 
         $user->name = $validated['name'];
@@ -124,6 +143,18 @@ class AuthController extends Controller
         }
 
         $user->save();
+
+        // Sync profile record
+        if (Schema::hasTable('profiles')) {
+            $user->profile()->updateOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'name'           => $validated['name'],
+                    'email'          => $validated['email'],
+                    'contact_number' => $validated['contact_number'] ?? null,
+                ]
+            );
+        }
 
         return response()->json([
             'success' => true,
