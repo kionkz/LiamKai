@@ -5,7 +5,7 @@
         <strong>{{ selectedProduct ? selectedProduct.name : 'No product selected' }}</strong>
         <span>{{ selectedProduct ? 'Pricing actions are enabled.' : 'Select a product row to edit or delete it.' }}</span>
       </div>
-      <div class="toolbar-actions">
+      <div v-if="canWriteProducts" class="toolbar-actions">
         <button @click="openCreateForm" class="btn btn-primary">New Product</button>
         <button @click="openEditSelected" class="btn btn-secondary" :disabled="!selectedProduct">Edit</button>
         <button @click="openDeleteSelected" class="btn btn-danger" :disabled="!selectedProduct">Delete</button>
@@ -51,7 +51,7 @@
         </thead>
         <tbody>
           <tr v-if="filteredProducts.length === 0">
-            <td colspan="7" class="no-data">No products yet. Use the New Product button to add one.</td>
+            <td colspan="7" class="no-data">No products found.</td>
           </tr>
           <tr
             v-for="p in filteredProducts"
@@ -149,6 +149,7 @@
 import { ref, onMounted, computed } from 'vue';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
+import { useAuthStore } from '../../stores/authStore';
 import {
   calculateDiscountedPrice,
   normalizeDiscountPercent,
@@ -158,6 +159,8 @@ import {
 } from '../../utils/pricing';
 
 const products = ref([]);
+const authStore = useAuthStore();
+const canWriteProducts = computed(() => authStore.can('products.write'));
 const categories = ref([]);
 const loading = ref(false);
 const error = ref('');
@@ -248,12 +251,14 @@ const changePage = (page) => {
 const closeForm = () => { showForm.value = false; editing.value = false; form.value = buildEmptyForm(); };
 
 const openCreateForm = () => {
+  if (!canWriteProducts.value) return;
   editing.value = false;
   form.value = buildEmptyForm();
   showForm.value = true;
 };
 
 const openEditSelected = () => {
+  if (!canWriteProducts.value) return;
   if (!selectedProduct.value) return;
   const p = selectedProduct.value;
   editing.value = true;
@@ -269,6 +274,10 @@ const openEditSelected = () => {
 };
 
 const save = async () => {
+  if (!canWriteProducts.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   if (!form.value.name || !form.value.category_id || !form.value.unit_of_measure) {
     alert('Please fill in all required fields: Name, Category, and Unit of Measure');
     return;
@@ -293,11 +302,16 @@ const save = async () => {
 };
 
 const openDeleteSelected = () => {
+  if (!canWriteProducts.value) return;
   if (!selectedProduct.value) return;
   showDeleteConfirm.value = true;
 };
 
 const confirmDelete = async () => {
+  if (!canWriteProducts.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   if (!selectedProduct.value) return;
   deleting.value = true;
   try {

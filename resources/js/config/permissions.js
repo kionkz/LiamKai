@@ -7,7 +7,7 @@
  *
  * Roles that exist in the system:
  *   admin       – full access
- *   sales       – customer orders (customers, orders, payments, walk-in/POS)
+ *   sales       – customer orders, customer/product lookup, walk-in/POS
  *   delivery    – logistics only
  *   inventory   – inventory (stock, categories, movements)
  *   purchasing  – purchasing + inventory (read) + reports
@@ -16,11 +16,33 @@
 export const MODULE_PERMISSIONS = {
   dashboard:       ['admin'],
   'customer-orders': ['admin', 'sales'],
+  payments:        ['admin'],
   inventory:       ['admin', 'inventory', 'purchasing'],
+  purchase_orders: ['admin', 'purchasing', 'inventory'],
   purchasing:      ['admin', 'purchasing'],
+  receiving:       ['admin', 'inventory'],
   logistics:       ['admin', 'delivery'],
   employees:       ['admin'],
+  reports:         ['admin', 'purchasing'],
   profile:         ['admin', 'sales', 'delivery', 'inventory', 'purchasing'], // always visible
+};
+
+export const ACTION_PERMISSIONS = {
+  'orders.create': ['admin', 'sales'],
+  'orders.edit': ['admin', 'sales'],
+  'orders.cancel': ['admin'],
+  'products.write': ['admin'],
+  'categories.write': ['admin'],
+  'inventory.adjust': ['admin', 'inventory'],
+  'inventory.profile.write': ['admin'],
+  'customers.write': ['admin'],
+  'payments.manage': ['admin'],
+  'purchase_orders.create': ['admin', 'purchasing'],
+  'purchase_orders.edit': ['admin', 'purchasing'],
+  'purchase_orders.receive': ['admin', 'inventory'],
+  'purchase_orders.status': ['admin', 'purchasing'],
+  'suppliers.write': ['admin'],
+  'reports.generate': ['admin', 'purchasing'],
 };
 
 /**
@@ -32,22 +54,23 @@ export const ROUTE_MODULE_MAP = {
   OrdersList:         'customer-orders',
   CreateOrder:        'customer-orders',
   OrderDetail:        'customer-orders',
-  PaymentManagement:  'customer-orders',
+  PaymentManagement:  'payments',
   CustomerList:       'customer-orders',
   CustomerProfile:    'customer-orders',
   POSScreen:          'customer-orders',
   DeliveryList:       'logistics',
   DeliveryDetails:    'logistics',
-  PurchasingDashboard:'purchasing',
+  PurchasingDashboard:'purchase_orders',
   CreatePurchaseOrder:'purchasing',
   EditPurchaseOrder:  'purchasing',
-  ReceivingReport:    'purchasing',
-  ReportsPage:        'purchasing',
+  ReceivingReport:    'receiving',
+  ReportsPage:        'reports',
   InventoryView:      'inventory',
   StockMovement:      'inventory',
   CategoriesView:     'inventory',
   ProductList:        'inventory',
   EmployeeManagement: 'employees',
+  LoginAuditLog:      'employees',
   ProfilePage:        'profile',
 };
 
@@ -59,6 +82,13 @@ export const ROUTE_MODULE_MAP = {
 export function canAccess(role, module) {
   if (!role || !module) return false;
   const allowed = MODULE_PERMISSIONS[module];
+  if (!allowed) return false;
+  return allowed.includes(role);
+}
+
+export function canPerform(role, action) {
+  if (!role || !action) return false;
+  const allowed = ACTION_PERMISSIONS[action];
   if (!allowed) return false;
   return allowed.includes(role);
 }

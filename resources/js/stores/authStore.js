@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../api';
-import { canAccess, defaultRouteForRole } from '../config/permissions';
+import { canAccess, canPerform, defaultRouteForRole } from '../config/permissions';
 
 export const useAuthStore = defineStore('auth', () => {
   const parseStoredUser = () => {
@@ -27,6 +27,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** Check whether the current user's role can access a given module. */
   const hasPermission = (module) => canAccess(userRole.value, module);
+  const can = (action) => canPerform(userRole.value, action);
 
   /** The route the user should land on after login. */
   const homeRoute = computed(() => defaultRouteForRole(userRole.value));
@@ -64,7 +65,15 @@ export const useAuthStore = defineStore('auth', () => {
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      if (token.value) {
+        await api.post('/logout');
+      }
+    } catch {
+      // Local session cleanup should still happen if the token is expired.
+    }
+
     token.value = null;
     user.value = null;
     localStorage.removeItem('authToken');
@@ -99,6 +108,7 @@ export const useAuthStore = defineStore('auth', () => {
     userRole,
     isAdmin,
     hasPermission,
+    can,
     homeRoute,
     login,
     logout,

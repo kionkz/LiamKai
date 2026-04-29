@@ -2,10 +2,11 @@
   <div class="purchasing-container">
     <div class="header-section">
       <div class="header-actions">
-        <button @click="showAddSupplierModal = true" class="btn btn-secondary">
+        <button v-if="canManageSuppliers" @click="showAddSupplierModal = true" class="btn btn-secondary">
           + Add Supplier
         </button>
-        <button 
+        <button
+          v-if="canCreatePO"
           @click="goToCreatePO" 
           class="btn btn-primary"
         >
@@ -100,25 +101,26 @@
           <button @click="exportPurchaseReceipt()" class="btn btn-secondary" :disabled="!canExportPurchaseReceipt">
             Receipt
           </button>
-          <button @click="editPO()" class="btn btn-secondary" :disabled="!selectedPurchaseOrder || selectedPurchaseOrder.status === 'received'">Edit</button>
+          <button v-if="canEditPO" @click="editPO()" class="btn btn-secondary" :disabled="!selectedPurchaseOrder || selectedPurchaseOrder.status === 'received'">Edit</button>
           <button
+            v-if="canReceivePO"
             @click="receivePO()"
             class="btn btn-primary"
             :disabled="!selectedPurchaseOrder || selectedPurchaseOrder.status === 'received' || selectedPurchaseOrder.status === 'cancelled'"
           >
             Receive
           </button>
-          <select v-model="selectedPOStatus" class="status-select" data-searchable="off" :disabled="!selectedPurchaseOrder || selectedPurchaseOrder?.status === 'received'">
+          <select v-if="canUpdatePOStatus" v-model="selectedPOStatus" class="status-select" data-searchable="off" :disabled="!selectedPurchaseOrder || selectedPurchaseOrder?.status === 'received'">
             <option value="pending">Pending</option>
             <option value="received">Received</option>
             <option value="cancelled">Cancelled</option>
           </select>
-          <button @click="updateSelectedPOStatus" class="btn btn-secondary" :disabled="!selectedPurchaseOrder || !selectedPOStatus || selectedPurchaseOrder?.status === 'received'">Apply Status</button>
+          <button v-if="canUpdatePOStatus" @click="updateSelectedPOStatus" class="btn btn-secondary" :disabled="!selectedPurchaseOrder || !selectedPOStatus || selectedPurchaseOrder?.status === 'received'">Apply Status</button>
         </div>
       </div>
       <div v-if="loading" class="loading-message">Loading purchase orders...</div>
       <div v-else-if="filteredPurchaseOrders.length === 0" class="empty-message">
-        No purchase orders yet. <router-link to="/purchasing/create">Create one now</router-link>
+        No purchase orders yet. <router-link v-if="canCreatePO" to="/purchasing/create">Create one now</router-link>
       </div>
       <table v-else class="data-table">
         <thead>
@@ -176,8 +178,8 @@
           <span>{{ selectedSupplier ? 'Supplier actions are enabled.' : 'Select a supplier row to enable actions.' }}</span>
         </div>
         <div class="selection-actions">
-          <button @click="editSupplier()" class="btn btn-secondary" :disabled="!selectedSupplier">Edit</button>
-          <button @click="deleteSupplier()" class="btn btn-danger" :disabled="!selectedSupplier">Delete</button>
+          <button v-if="canManageSuppliers" @click="editSupplier()" class="btn btn-secondary" :disabled="!selectedSupplier">Edit</button>
+          <button v-if="canManageSuppliers" @click="deleteSupplier()" class="btn btn-danger" :disabled="!selectedSupplier">Delete</button>
         </div>
       </div>
       <div class="filter-bar">
@@ -191,7 +193,7 @@
         <button @click="runSupplierSearch" class="btn btn-secondary">Search</button>
       </div>
       <div v-if="suppliers.length === 0" class="empty-message">
-        No suppliers yet. <button @click="showAddSupplierModal = true" class="link-button">Add one</button>
+        No suppliers yet. <button v-if="canManageSuppliers" @click="showAddSupplierModal = true" class="link-button">Add one</button>
       </div>
       <div v-else-if="filteredSuppliers.length === 0" class="empty-message">
         No suppliers match your search.
@@ -398,10 +400,17 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
+import { useAuthStore } from '../../stores/authStore';
 import { formatPeso } from '../../utils/currency';
 import { exportReceiptPdf } from '../../utils/receiptPdf';
 
 const router = useRouter();
+const authStore = useAuthStore();
+const canCreatePO = computed(() => authStore.can('purchase_orders.create'));
+const canEditPO = computed(() => authStore.can('purchase_orders.edit'));
+const canReceivePO = computed(() => authStore.can('purchase_orders.receive'));
+const canUpdatePOStatus = computed(() => authStore.can('purchase_orders.status'));
+const canManageSuppliers = computed(() => authStore.can('suppliers.write'));
 
 // State
 const activeTab = ref('orders');
@@ -519,7 +528,16 @@ const runSupplierSearch = () => {
 };
 
 const goToCreatePO = () => {
+  if (!canCreatePO.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (suppliers.value.length === 0) {
+    if (!canManageSuppliers.value) {
+      errorMessage.value = 'No suppliers are available. Ask an administrator to add supplier records before creating purchase orders.';
+      return;
+    }
+
     warningModalConfig.value = {
       type: 'suppliers',
       message: 'You need to add at least one supplier before you can create a purchase order.',
@@ -625,11 +643,19 @@ const viewPO = (po = selectedPurchaseOrder.value) => {
 };
 
 const editPO = (po = selectedPurchaseOrder.value) => {
+  if (!canEditPO.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!po) return;
   router.push(`/purchasing/edit/${po.id}`);
 };
 
 const receivePO = (po = selectedPurchaseOrder.value) => {
+  if (!canReceivePO.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!po) return;
   router.push(`/purchasing/receive/${po.id}`);
 };
@@ -710,6 +736,10 @@ const deletePO = async (id) => {
 };
 
 const updatePOStatus = async (po, nextStatus) => {
+  if (!canUpdatePOStatus.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!po || !nextStatus) return;
 
   if (po.status === 'received') {
@@ -741,6 +771,10 @@ const updatePOStatus = async (po, nextStatus) => {
 };
 
 const updateSelectedPOStatus = async () => {
+  if (!canUpdatePOStatus.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!selectedPurchaseOrder.value || !selectedPOStatus.value) return;
   if (selectedPOStatus.value === 'cancelled') {
     cancelReason.value = '';
@@ -751,6 +785,10 @@ const updateSelectedPOStatus = async () => {
 };
 
 const confirmCancel = async () => {
+  if (!canUpdatePOStatus.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!cancelReason.value.trim()) return;
   const po = selectedPurchaseOrder.value;
   showCancelModal.value = false;
@@ -774,6 +812,10 @@ const confirmCancel = async () => {
 };
 
 const openAddSupplierModal = () => {
+  if (!canManageSuppliers.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   editingSupplier.value = null;
   supplierForm.value = {
     name: '',
@@ -787,6 +829,10 @@ const openAddSupplierModal = () => {
 };
 
 const editSupplier = (supplier = selectedSupplier.value) => {
+  if (!canManageSuppliers.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!supplier) return;
   editingSupplier.value = supplier;
   supplierForm.value = { ...supplier };
@@ -807,6 +853,10 @@ const closeSupplierModal = () => {
 };
 
 const saveSupplier = async () => {
+  if (!canManageSuppliers.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   try {
     if (editingSupplier.value) {
       const response = await api.put(`/suppliers/${editingSupplier.value.id}`, supplierForm.value);
@@ -831,6 +881,10 @@ const saveSupplier = async () => {
 };
 
 const deleteSupplier = async (id = selectedSupplier.value?.id) => {
+  if (!canManageSuppliers.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!id || !confirm('Are you sure you want to delete this supplier?')) return;
   
   try {

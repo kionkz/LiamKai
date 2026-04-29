@@ -4,6 +4,7 @@ namespace App\Http\Requests\Orders;
 
 use App\Models\Customer;
 use App\Models\Product;
+use Carbon\Carbon;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreOrderRequest extends FormRequest
@@ -26,6 +27,7 @@ class StoreOrderRequest extends FormRequest
         return [
             'customer_id' => 'required|exists:customers,id',
             'fulfillment_type' => 'required|in:delivery,pickup',
+            'order_priority' => 'sometimes|in:regular,urgent',
             'scheduled_for' => 'required|date',
             'delivery_address' => 'nullable|string|max:255|required_if:fulfillment_type,delivery',
             'notes' => 'nullable|string',
@@ -42,6 +44,17 @@ class StoreOrderRequest extends FormRequest
             $customer = Customer::find($this->input('customer_id'));
             $customerType = $customer?->type ?? 'retail';
             $items = $this->input('items', []);
+            $priority = $this->input('order_priority', 'regular');
+
+            if ($priority === 'urgent' && $this->filled('scheduled_for')) {
+                $scheduledFor = Carbon::parse($this->input('scheduled_for'));
+                if (! $scheduledFor->isSameDay(now())) {
+                    $validator->errors()->add(
+                        'scheduled_for',
+                        'Rushed / urgent orders must be scheduled for today.'
+                    );
+                }
+            }
 
             foreach ($items as $index => $item) {
                 $quantity = isset($item['quantity']) ? (float) $item['quantity'] : null;

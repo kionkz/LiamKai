@@ -12,6 +12,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\StockMovement;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -107,7 +108,10 @@ class OrderController extends Controller
             $customer = Customer::findOrFail($validated['customer_id']);
             $orderType = $customer->type ?? 'retail';
             $fulfillmentType = $validated['fulfillment_type'];
-            $scheduledFor = $validated['scheduled_for'];
+            $orderPriority = $validated['order_priority'] ?? 'regular';
+            $scheduledFor = $orderPriority === 'urgent'
+                ? $this->sameDaySchedule($validated['scheduled_for'])
+                : $validated['scheduled_for'];
             $deliveryAddress = $fulfillmentType === 'delivery'
                 ? ($validated['delivery_address'] ?? $customer->address ?? 'No address provided')
                 : null;
@@ -115,6 +119,7 @@ class OrderController extends Controller
             $order = Order::create([
                 'customer_id' => $validated['customer_id'],
                 'fulfillment_type' => $fulfillmentType,
+                'order_priority' => $orderPriority,
                 'order_type' => $orderType,
                 'notes' => $validated['notes'] ?? null,
                 'payment_status' => 'unpaid',
@@ -327,6 +332,16 @@ class OrderController extends Controller
             $order = Order::with('customer', 'orderItems.product', 'payments', 'delivery', 'fulfillmentUpdatedBy')
                 ->findOrFail($id);
 
+            if (
+                request()->user()?->role === 'delivery'
+                && !in_array($order->fulfillment_type, ['delivery', 'pickup'], true)
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Access denied. You do not have permission to perform this action.',
+                ], 403);
+            }
+
             return response()->json([
                 'success' => true,
                 'data' => $this->formatOrder($order)
@@ -385,6 +400,11 @@ class OrderController extends Controller
 
             if (array_key_exists('fulfillment_type', $validated) && $validated['fulfillment_type'] === 'pickup') {
                 $validated['delivery_address'] = null;
+            }
+
+            $requestedPriority = $validated['order_priority'] ?? $order->order_priority ?? 'regular';
+            if ($requestedPriority === 'urgent' && array_key_exists('scheduled_for', $validated) && $validated['scheduled_for']) {
+                $validated['scheduled_for'] = $this->sameDaySchedule($validated['scheduled_for']);
             }
 
             if (array_key_exists('scheduled_for', $validated)) {
@@ -525,6 +545,8 @@ class OrderController extends Controller
     {
         $formatted = $order->toArray();
         $formatted['type'] = $order->order_type;
+        $formatted['order_priority'] = $order->order_priority ?? 'regular';
+        $formatted['is_urgent'] = ($order->order_priority ?? 'regular') === 'urgent';
         $formatted['status'] = $order->payment_status;
         $formatted['amount_paid'] = max((float) $order->total_amount - (float) $order->outstanding_balance, 0);
         $formatted['remaining_balance'] = (float) $order->outstanding_balance;
@@ -555,6 +577,17 @@ class OrderController extends Controller
         })->values()->all();
 
         return $formatted;
+    }
+
+    private function sameDaySchedule(string $scheduledFor): Carbon
+    {
+        $requested = Carbon::parse($scheduledFor);
+        return now()
+            ->setTime(
+                (int) $requested->format('H'),
+                (int) $requested->format('i'),
+                0
+            );
     }
 
     private function resolveOrderStatus(Order $order): string

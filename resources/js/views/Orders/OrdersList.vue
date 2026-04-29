@@ -6,11 +6,11 @@
         <span>{{ selectedOrder ? 'Order actions are enabled.' : 'Select a row to review or edit order details.' }}</span>
       </div>
       <div class="toolbar-actions">
-        <button @click="showCreateModal = true" class="btn btn-primary">Create Order</button>
-        <button @click="openEditModal" class="btn btn-secondary" :disabled="!selectedOrder">Edit</button>
+        <button v-if="canCreateOrders" @click="showCreateModal = true" class="btn btn-primary">Create Order</button>
+        <button v-if="canEditOrders" @click="openEditModal" class="btn btn-secondary" :disabled="!selectedOrder">Edit</button>
         <button @click="openSummaryModal" class="btn btn-secondary" :disabled="!selectedOrder">View</button>
         <button @click="printReceipt" class="btn btn-secondary" :disabled="!selectedOrder">Print Receipt</button>
-        <button @click="openDeleteConfirm" class="btn btn-danger" :disabled="!canCancelSelectedOrder">Cancel Order</button>
+        <button v-if="canCancelOrders" @click="openDeleteConfirm" class="btn btn-danger" :disabled="!canCancelSelectedOrder">Cancel Order</button>
       </div>
     </div>
 
@@ -52,6 +52,7 @@
           <tr>
             <th class="select-column"></th>
             <th>Order #</th>
+            <th>Priority</th>
             <th>Customer</th>
             <th>Pricing</th>
             <th>Fulfillment</th>
@@ -65,7 +66,7 @@
         </thead>
         <tbody>
           <tr v-if="orders.length === 0">
-            <td colspan="11" class="no-data">No orders found matching your criteria.</td>
+            <td colspan="12" class="no-data">No orders found matching your criteria.</td>
           </tr>
           <tr
             v-for="order in orders"
@@ -77,6 +78,11 @@
               <input type="checkbox" :checked="selectedOrderId === order.id" @change="selectOrder(order)" />
             </td>
             <td>#{{ order.id.toString().padStart(4, '0') }}</td>
+            <td>
+              <span class="priority-badge" :class="order.order_priority">
+                {{ order.is_urgent ? 'URGENT' : 'Regular' }}
+              </span>
+            </td>
             <td>{{ order.customer?.name || 'N/A' }}</td>
             <td><span class="badge" :class="order.type">{{ formatPricingType(order.type) }}</span></td>
             <td><span class="badge" :class="order.fulfillment_type">{{ formatFulfillmentType(order.fulfillment_type) }}</span></td>
@@ -109,6 +115,7 @@
         <div v-if="selectedOrder" class="summary-block">
           <div class="summary-meta">
             <p><strong>Order #:</strong> #{{ selectedOrder.id.toString().padStart(4, '0') }}</p>
+            <p><strong>Priority:</strong> {{ selectedOrder.is_urgent ? 'Urgent / Rushed' : 'Regular' }}</p>
             <p><strong>Customer:</strong> {{ selectedOrder.customer?.name || 'N/A' }}</p>
             <p><strong>Pricing:</strong> {{ formatPricingType(selectedOrder.type) }}</p>
             <p><strong>Fulfillment:</strong> {{ formatFulfillmentType(selectedOrder.fulfillment_type) }}</p>
@@ -182,7 +189,21 @@
             </div>
             <div class="form-group">
               <label>Scheduled Date &amp; Time</label>
-              <input v-model="editForm.scheduled_for" type="datetime-local" :disabled="!canEditSelectedOrderDetails" />
+              <input
+                v-if="!selectedOrder?.is_urgent"
+                v-model="editForm.scheduled_for"
+                type="datetime-local"
+                :disabled="!canEditSelectedOrderDetails"
+              />
+              <div v-else class="urgent-edit-schedule">
+                <input :value="todayDateInput" type="date" disabled />
+                <input
+                  v-model="editUrgentTime"
+                  type="time"
+                  :disabled="!canEditSelectedOrderDetails"
+                  @input="syncUrgentEditSchedule"
+                />
+              </div>
             </div>
           </div>
           <div class="form-group" v-if="editForm.fulfillment_type === 'delivery'">
@@ -274,10 +295,12 @@ import autoTable from 'jspdf-autotable';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
 import CreateOrder from './CreateOrder.vue';
+import { useAuthStore } from '../../stores/authStore';
 import { formatPhp, formatPeso } from '../../utils/currency';
 import { getApiErrorMessage } from '../../utils/orderValidation';
 import { resolveOrderUnitPrice } from '../../utils/pricing';
 
+const authStore = useAuthStore();
 const orders = ref([]);
 const loading = ref(false);
 const error = ref('');
@@ -295,6 +318,7 @@ const deleting = ref(false);
 const savingEdit = ref(false);
 const editError = ref('');
 const products = ref([]);
+const editUrgentTime = ref('00:00');
 
 const editForm = ref({
   fulfillment_type: 'delivery',
@@ -313,7 +337,11 @@ const selectedOrder = computed(() => orders.value.find((order) => order.id === s
 const productOptions = computed(() => products.value.map((product) => ({ value: product.id, label: product.name })));
 const selectedOrderCustomerType = computed(() => selectedOrder.value?.type || selectedOrder.value?.customer?.type || 'retail');
 const editOrderTotal = computed(() => editForm.value.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0));
+const canCreateOrders = computed(() => authStore.can('orders.create'));
+const canEditOrders = computed(() => authStore.can('orders.edit'));
+const canCancelOrders = computed(() => authStore.can('orders.cancel'));
 const canCancelSelectedOrder = computed(() => {
+  if (!canCancelOrders.value) return false;
   if (!selectedOrder.value) return false;
 
   const hasLogisticsProgress = selectedOrder.value.fulfillment_status !== 'pending'
@@ -325,6 +353,7 @@ const canCancelSelectedOrder = computed(() => {
 });
 const isSelectedOrderLocked = computed(() => selectedOrder.value ? isOrderLockedForEditing(selectedOrder.value) : false);
 const canEditSelectedOrderDetails = computed(() => {
+  if (!canEditOrders.value) return false;
   if (!selectedOrder.value || isSelectedOrderLocked.value) return false;
   return !hasLogisticsProgress(selectedOrder.value);
 });
@@ -357,6 +386,15 @@ const formatDateTimeLocal = (value) => {
   if (Number.isNaN(date.getTime())) return '';
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
+};
+
+const todayDateInput = computed(() => formatDateTimeLocal(new Date()).slice(0, 10));
+const extractTime = (value) => String(formatDateTimeLocal(value || new Date())).slice(11, 16) || '00:00';
+const syncUrgentEditSchedule = () => {
+  const [hours = '00', minutes = '00'] = String(editUrgentTime.value || '00:00').split(':');
+  const value = new Date();
+  value.setHours(Number(hours), Number(minutes), 0, 0);
+  editForm.value.scheduled_for = formatDateTimeLocal(value);
 };
 
 const formatFulfillmentType = (value) => value === 'pickup' ? 'Pickup' : 'Delivery';
@@ -454,6 +492,9 @@ const normalizeEditItemQuantity = (index) => {
 const validateEditForm = () => {
   if (!canEditSelectedOrderDetails.value) return selectedOrderEditLockReason.value || 'This order can no longer be edited.';
   if (!editForm.value.scheduled_for) return 'Scheduled date and time is required.';
+  if (selectedOrder.value?.is_urgent && editForm.value.scheduled_for.slice(0, 10) !== todayDateInput.value) {
+    return 'Rushed / urgent orders must stay scheduled for today.';
+  }
   if (editForm.value.fulfillment_type === 'delivery' && !editForm.value.delivery_address.trim()) return 'Delivery address is required.';
 
   if (!canEditSelectedOrderFully.value) {
@@ -525,6 +566,10 @@ const openSummaryModal = () => {
 };
 
 const openEditModal = () => {
+  if (!canEditOrders.value) {
+    error.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!selectedOrder.value) return;
   editError.value = '';
   editForm.value = {
@@ -534,12 +579,20 @@ const openEditModal = () => {
     notes: selectedOrder.value.notes || '',
     items: orderItems(selectedOrder.value).map(buildEditItem),
   };
+  if (selectedOrder.value.is_urgent) {
+    editUrgentTime.value = extractTime(selectedOrder.value.scheduled_for);
+    syncUrgentEditSchedule();
+  }
   editForm.value.items.forEach((_, index) => syncEditItemPrice(index));
   if (editForm.value.items.length === 0) addEditItem();
   showEditModal.value = true;
 };
 
 const saveOrderEdit = async () => {
+  if (!canEditOrders.value) {
+    editError.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!selectedOrder.value) return;
   editError.value = validateEditForm();
   if (editError.value) return;
@@ -656,11 +709,19 @@ const printReceipt = async () => {
 };
 
 const openDeleteConfirm = () => {
+  if (!canCancelOrders.value) {
+    error.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!canCancelSelectedOrder.value) return;
   showDeleteConfirm.value = true;
 };
 
 const confirmDelete = async () => {
+  if (!canCancelOrders.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   if (!selectedOrder.value) return;
   deleting.value = true;
   try {
@@ -847,6 +908,24 @@ onMounted(async () => {
 .badge.wholesale { background: #f3e5f5; color: #7b1fa2; }
 .badge.delivery { background: #eff6ff; color: #1d4ed8; }
 .badge.pickup { background: #ecfdf3; color: #027a48; }
+.priority-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.priority-badge.urgent {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+.priority-badge.regular {
+  background: #eef2f7;
+  color: #475569;
+}
 .status.pending { background: #fff3e0; color: #ef6c00; }
 .status.in_progress { background: #e1f5fe; color: #0277bd; }
 .status.completed,
@@ -968,6 +1047,12 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.urgent-edit-schedule {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .edit-products-section {

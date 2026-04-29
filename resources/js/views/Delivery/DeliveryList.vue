@@ -25,6 +25,13 @@
         </div>
       </article>
       <article class="stat-card">
+        <div class="stat-icon red">!</div>
+        <div>
+          <p class="stat-label">Urgent Open</p>
+          <p class="stat-value">{{ meta.urgent }}</p>
+        </div>
+      </article>
+      <article class="stat-card">
         <div class="stat-icon dark">&#8801;</div>
         <div>
           <p class="stat-label">Total Orders</p>
@@ -75,8 +82,14 @@
           <option value="completed">Completed</option>
           <option value="pending">Pending</option>
         </select>
+        <select v-model="selectedPriority" class="filter-input" data-searchable="off">
+          <option value="all">All Orders</option>
+          <option value="regular">Regular Orders</option>
+          <option value="urgent">Urgent / Rushed Orders</option>
+        </select>
         <select v-model="sortBy" class="filter-input" data-searchable="off">
           <option value="scheduled_for">Scheduled Date</option>
+          <option value="priority">Priority</option>
           <option value="id">Order Number</option>
           <option value="created_at">Created Date</option>
           <option value="total_amount">Amount</option>
@@ -112,6 +125,7 @@
             <tr>
               <th>Order #</th>
               <th>Customer</th>
+              <th>Priority</th>
               <th>Type</th>
               <th>Address / Note</th>
               <th>Scheduled</th>
@@ -126,10 +140,15 @@
               v-for="order in orders"
               :key="order.id"
               @click="selectedOrderId = order.id"
-              :class="{ 'selected-row': selectedOrderId === order.id }"
+              :class="{ 'selected-row': selectedOrderId === order.id, 'urgent-row': order.is_urgent && order.status !== 'completed' }"
             >
               <td class="order-no">#{{ String(order.id).padStart(4, '0') }}</td>
               <td>{{ order.customer_name }}</td>
+              <td>
+                <span class="priority-badge" :class="order.order_priority">
+                  {{ order.is_urgent ? 'URGENT' : 'Regular' }}
+                </span>
+              </td>
               <td>
                 <span class="type-badge" :class="order.fulfillment_type">
                   {{ order.fulfillment_type === 'pickup' ? 'Pickup' : 'Delivery' }}
@@ -145,7 +164,7 @@
               <td class="audit-cell">{{ auditLabel(order) }}</td>
             </tr>
             <tr v-if="orders.length === 0">
-              <td colspan="9" class="empty-row">
+              <td colspan="10" class="empty-row">
                 {{ emptyStateLabel }}
               </td>
             </tr>
@@ -176,6 +195,7 @@ const activeFulfillmentType = ref('delivery');
 
 const searchTerm = ref('');
 const selectedStatus = ref('all');
+const selectedPriority = ref('all');
 const includeAllOrders = ref(false);
 const dateFrom = ref(new Date().toISOString().slice(0, 10));
 const dateTo = ref(new Date().toISOString().slice(0, 10));
@@ -186,7 +206,7 @@ const sortBy = ref('scheduled_for');
 const sortDirection = ref('asc');
 
 const pagination = ref({ current_page: 1, last_page: 1, per_page: 25, total: 0 });
-const meta = ref({ total: 0, pending: 0, in_progress: 0, completed: 0 });
+const meta = ref({ total: 0, pending: 0, in_progress: 0, completed: 0, urgent: 0 });
 
 const statusLabel = (status, fulfillmentType = 'delivery') => {
   if (status === 'in_progress') return fulfillmentType === 'pickup' ? 'Ready for Pickup' : 'En-route';
@@ -253,6 +273,7 @@ const loadOrders = async (page = 1) => {
     }
     if (searchTerm.value.trim()) params.search = searchTerm.value.trim();
     if (selectedStatus.value !== 'all') params.status = selectedStatus.value;
+    if (selectedPriority.value !== 'all') params.priority = selectedPriority.value;
 
     const response = await api.get('/orders/logistics', { params });
 
@@ -352,6 +373,7 @@ onMounted(() => loadOrders(1));
 .stat-icon.blue   { background: #58a8ea; }
 .stat-icon.green  { background: #54c081; }
 .stat-icon.orange { background: #e28937; }
+.stat-icon.red    { background: #dc2626; }
 .stat-icon.dark   { background: #0a1d37; }
 
 .stat-label { margin: 0; font-size: 11px; color: #7b8598; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -528,6 +550,8 @@ tbody tr:last-child td { border-bottom: none; }
 
 .selected-row { background: #fff7ed !important; }
 .selected-row td:first-child { border-left: 3px solid #e28937; }
+.urgent-row { background: #fff8f8; }
+.urgent-row td:first-child { border-left: 3px solid #dc2626; }
 
 .order-no { font-weight: 700; color: #0a1d37; }
 .address-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #5a6882; }
@@ -545,6 +569,26 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .type-badge.delivery { background: #e3f2fd; color: #1565c0; }
 .type-badge.pickup   { background: #f3e5f5; color: #6a1b9a; }
+
+.priority-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.priority-badge.urgent {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+.priority-badge.regular {
+  background: #eef2f7;
+  color: #475569;
+}
 
 .status-pill {
   display: inline-block;

@@ -6,9 +6,9 @@
         <h1>Order #{{ order?.id?.toString().padStart(4, '0') || 'Loading...' }}</h1>
       </div>
       <div class="header-actions">
-        <button @click="editOrder" class="btn btn-secondary">Edit Order</button>
+        <button v-if="canEditOrders" @click="editOrder" class="btn btn-secondary">Edit Order</button>
         <button @click="exportOrderPdf" class="btn btn-secondary">Export PDF</button>
-        <button @click="deleteOrder" class="btn btn-danger" :disabled="!canCancelOrder">Cancel Order</button>
+        <button v-if="canCancelOrders" @click="deleteOrder" class="btn btn-danger" :disabled="!canCancelOrder">Cancel Order</button>
       </div>
     </div>
 
@@ -30,6 +30,12 @@
           <div class="info-row">
             <span class="label">Order Date:</span>
             <span>{{ new Date(order.created_at).toLocaleDateString() }}</span>
+          </div>
+          <div class="info-row">
+            <span class="label">Priority:</span>
+            <span class="status" :class="order.is_urgent ? 'cancelled' : 'pending'">
+              {{ order.is_urgent ? 'URGENT / RUSHED' : 'Regular Order' }}
+            </span>
           </div>
           <div class="info-row">
             <span class="label">Customer:</span>
@@ -126,19 +132,24 @@
 import { computed, ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../api';
+import { useAuthStore } from '../../stores/authStore';
 import { formatPeso } from '../../utils/currency';
 import { exportReceiptPdf } from '../../utils/receiptPdf';
 
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 
 const order = ref(null);
 const loading = ref(false);
 const error = ref('');
 const showDeleteConfirm = ref(false);
 const deleting = ref(false);
+const canEditOrders = computed(() => authStore.can('orders.edit'));
+const canCancelOrders = computed(() => authStore.can('orders.cancel'));
 
 const canCancelOrder = computed(() => {
+  if (!canCancelOrders.value) return false;
   if (!order.value) return false;
 
   const hasLogisticsProgress = order.value.fulfillment_status !== 'pending'
@@ -167,6 +178,10 @@ const fetchOrder = async () => {
 };
 
 const editOrder = () => {
+  if (!canEditOrders.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   // Navigate to edit order page
   alert('Edit order functionality will be implemented');
 };
@@ -205,11 +220,19 @@ const exportOrderPdf = () => {
 };
 
 const deleteOrder = () => {
+  if (!canCancelOrders.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   if (!canCancelOrder.value) return;
   showDeleteConfirm.value = true;
 };
 
 const confirmDelete = async () => {
+  if (!canCancelOrders.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   deleting.value = true;
   try {
     const response = await api.delete(`/orders/${order.value.id}`);

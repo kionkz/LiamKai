@@ -5,7 +5,12 @@
     <div class="page-header">
       <div>
         <button class="back-btn" @click="$router.back()">&#8592; Back to Logistics</button>
-        <h1 v-if="order">Order #{{ String(order.id).padStart(4, '0') }}</h1>
+        <div v-if="order" class="title-row">
+          <h1>Order #{{ String(order.id).padStart(4, '0') }}</h1>
+          <span class="priority-badge" :class="order.order_priority">
+            {{ order.is_urgent ? 'URGENT' : 'Regular' }}
+          </span>
+        </div>
       </div>
       <span v-if="order" class="status-pill" :class="order.fulfillment_status">
         {{ statusLabel(order.fulfillment_status, order.fulfillment_type) }}
@@ -22,6 +27,12 @@
         <div class="card">
           <h3 class="section-title">Order Information</h3>
           <div class="info-rows">
+            <div class="info-row">
+              <span class="lbl">Priority</span>
+              <span class="priority-badge" :class="order.order_priority">
+                {{ order.is_urgent ? 'URGENT / RUSHED' : 'Regular Order' }}
+              </span>
+            </div>
             <div class="info-row">
               <span class="lbl">Customer</span>
               <span>{{ order.customer?.name ?? 'Walk-In Customer' }}</span>
@@ -290,6 +301,13 @@ onMounted(loadOrder);
 
 .page-header h1 { margin: 0; font-size: 26px; color: #0a1d37; font-weight: 800; }
 
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .state-msg { padding: 40px; text-align: center; color: #607089; font-size: 14px; }
 .state-msg.error { color: #c0392b; }
 
@@ -368,6 +386,27 @@ onMounted(loadOrder);
 }
 .type-badge.delivery { background: #e3f2fd; color: #1565c0; }
 .type-badge.pickup   { background: #f3e5f5; color: #6a1b9a; }
+
+.priority-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.priority-badge.urgent {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+.priority-badge.regular {
+  background: #eef2f7;
+  color: #475569;
+}
 
 /* Items table */
 .items-table { width: 100%; border-collapse: collapse; font-size: 13px; }

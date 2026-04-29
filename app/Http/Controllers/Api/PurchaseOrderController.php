@@ -187,6 +187,40 @@ class PurchaseOrderController extends Controller
             ]);
             
             $purchaseOrder = PurchaseOrder::with('purchaseOrderItems.product', 'supplier')->findOrFail($id);
+            $role = $request->user()?->role;
+            $isReceiving = !empty($validated['received_items']);
+            $isEditingPurchaseOrder = !empty(array_intersect(
+                array_keys($validated),
+                ['status', 'supplier_id', 'order_date', 'expected_delivery_date', 'notes', 'items']
+            ));
+
+            if ($isReceiving && !in_array($role, ['admin', 'inventory'], true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Access denied. You do not have permission to perform this action.',
+                ], 403);
+            }
+
+            if (!$isReceiving && $isEditingPurchaseOrder && !in_array($role, ['admin', 'purchasing'], true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Access denied. You do not have permission to perform this action.',
+                ], 403);
+            }
+
+            if ($isReceiving && $isEditingPurchaseOrder && $role === 'inventory') {
+                $nonReceivingFields = array_diff(
+                    array_keys($validated),
+                    ['recipient_name', 'damage_notes', 'shortage_notes', 'payment_method', 'payment_reference', 'received_items']
+                );
+
+                if (!empty($nonReceivingFields)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Access denied. You do not have permission to perform this action.',
+                    ], 403);
+                }
+            }
 
             // Block ALL modifications once a PO is fully received
             if ($purchaseOrder->status === 'received') {

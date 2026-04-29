@@ -70,6 +70,15 @@ class ReportController extends Controller
 
     public function analytics(Request $request): JsonResponse
     {
+        $reportType = (string) $request->query('report_type', 'sales');
+
+        if ($request->user()?->role === 'purchasing' && $reportType !== 'inventory') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Access denied. You do not have permission to perform this action.',
+            ], 403);
+        }
+
         [$startDate, $endDate] = $this->resolveDateRange($request);
         $inventoryQuantityColumn = Schema::hasColumn('inventory', 'quantity_on_hand') ? 'quantity_on_hand' : 'quantity';
 
@@ -278,6 +287,13 @@ class ReportController extends Controller
 
     public function dashboardSummary(): JsonResponse
     {
+        if (request()->user()?->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Access denied. You do not have permission to perform this action.',
+            ], 403);
+        }
+
         $todayStart = now()->startOfDay();
         $todayEnd = now()->endOfDay();
         $weekStart = now()->startOfWeek()->startOfDay();

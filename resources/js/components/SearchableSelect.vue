@@ -35,7 +35,8 @@
         :class="{ highlighted: index === highlightedIndex, selected: option.value === modelValue }"
         @mousedown.prevent="selectOption(option)"
       >
-        {{ option.label }}
+        <span class="option-label">{{ option.label }}</span>
+        <span v-if="option.metaRight" class="option-meta">{{ option.metaRight }}</span>
       </button>
       <p v-if="filteredOptions.length === 0" class="empty-state">No results found</p>
     </div>
@@ -246,11 +247,14 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
   border: none;
   background: #fff;
-  text-align: left;
   cursor: pointer;
   font-size: 13px;
   color: #10243e;
   min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
 }
 
 .option-button:hover,
@@ -263,11 +267,27 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.option-button.selected::before {
-  content: '✓';
-  margin-right: 8px;
+.option-button.selected .option-label::before {
+  content: '✓ ';
   color: #2563eb;
   font-weight: 700;
+}
+
+.option-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.option-meta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .empty-state {
