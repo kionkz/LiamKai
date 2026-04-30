@@ -55,11 +55,16 @@
             <router-link to="/reports" :class="{ active: activeMenu === 'sales-report' }" @click="setActiveMenu('sales-report')">Reports & Analytics</router-link>
           </div>
         </li>
-        <li>
-          <router-link to="/employees" :class="{ active: activeMenu === 'employees' }" @click="setActiveMenu('employees')">
+        <li v-if="authStore.isAdmin" class="menu-group">
+          <button class="group-head" :class="{ active: activeMenu === 'employees-group' }" type="button" @click="toggleAndActivate('employee-admin', 'employees-group')">
             <Users class="menu-icon" :size="18" />
-            <span class="tab-label">Employees & Accounts</span>
-          </router-link>
+            <span>Employees & Accounts</span>
+            <span class="group-caret">{{ employeeAdminOpen ? '▾' : '▸' }}</span>
+          </button>
+          <div v-if="employeeAdminOpen" class="sub-links">
+            <router-link to="/employees" :class="{ active: activeMenu === 'employees' }" @click="setActiveMenu('employees')">Employees</router-link>
+            <router-link to="/login-audit-logs" :class="{ active: activeMenu === 'login-audit' }" @click="setActiveMenu('login-audit')">Login Audit</router-link>
+          </div>
         </li>
       </ul>
 
@@ -110,6 +115,7 @@ const currentTime = ref('');
 const customerOrdersOpen = ref(false);
 const inventoryOpen = ref(false);
 const purchasingOpen = ref(false);
+const employeeAdminOpen = ref(false);
 const activeMenu = ref('');
 
 const displayName = computed(() => authStore.user?.name || authStore.user?.username || 'User');
@@ -117,6 +123,7 @@ const displayRole = computed(() => authStore.user?.role || 'Owner');
 const isCustomerOrdersRoute = computed(() => route.path.startsWith('/customers') || route.path === '/pos' || route.path.startsWith('/orders') || route.path.startsWith('/payments'));
 const isInventoryRoute = computed(() => route.path.startsWith('/inventory'));
 const isPurchasingRoute = computed(() => route.path.startsWith('/purchasing') || route.path === '/reports');
+const isEmployeeAdminRoute = computed(() => route.path === '/employees' || route.path === '/login-audit-logs');
 const isPurchasingProfileRoute = computed(() => {
   return (
     route.path === '/purchasing' ||
@@ -130,6 +137,7 @@ const closeAllGroups = () => {
   customerOrdersOpen.value = false;
   inventoryOpen.value = false;
   purchasingOpen.value = false;
+  employeeAdminOpen.value = false;
 };
 
 const openOnlyGroup = (group) => {
@@ -144,13 +152,17 @@ const openOnlyGroup = (group) => {
   if (group === 'purchasing') {
     purchasingOpen.value = true;
   }
+  if (group === 'employee-admin') {
+    employeeAdminOpen.value = true;
+  }
 };
 
 const toggleGroup = (group) => {
   const isOpen =
     (group === 'customer' && customerOrdersOpen.value) ||
     (group === 'inventory' && inventoryOpen.value) ||
-    (group === 'purchasing' && purchasingOpen.value);
+    (group === 'purchasing' && purchasingOpen.value) ||
+    (group === 'employee-admin' && employeeAdminOpen.value);
 
   if (isOpen) {
     closeAllGroups();
@@ -223,6 +235,10 @@ const syncActiveMenuByRoute = () => {
     activeMenu.value = 'employees';
     return;
   }
+  if (route.path === '/login-audit-logs') {
+    activeMenu.value = 'login-audit';
+    return;
+  }
 
   activeMenu.value = '';
 };
@@ -238,6 +254,10 @@ const syncGroupByRoute = () => {
   }
   if (isPurchasingRoute.value) {
     openOnlyGroup('purchasing');
+    return;
+  }
+  if (isEmployeeAdminRoute.value) {
+    openOnlyGroup('employee-admin');
     return;
   }
 
@@ -262,6 +282,7 @@ const pageTitle = computed(() => {
     'CategoriesView': 'Product Categories',
     'StockMovement': 'Inventory Audit',
     'EmployeeManagement': 'Employees & Accounts',
+    'LoginAuditLog': 'Login Audit',
     'ProfilePage': 'My Profile',
     'ReportsPage': 'Reports & Analytics'
   };
@@ -286,6 +307,7 @@ const pageSummary = computed(() => {
     CategoriesView: 'Create, edit, and maintain the product categories used across inventory and product management.',
     StockMovement: 'Audit every inbound, outbound, defect, and manual stock event.',
     EmployeeManagement: 'Maintain employee records, roles, and user accounts.',
+    LoginAuditLog: 'Audit login attempts, blocked account access, and logout activity.',
     ProfilePage: 'Update account identity and access information.',
     ReportsPage: 'Analyze sales, payments, inventory, and customer performance'
   };
@@ -293,8 +315,8 @@ const pageSummary = computed(() => {
   return summaries[route.name] || 'Monitor daily activity and key business operations.';
 });
 
-const logout = () => {
-  authStore.logout();
+const logout = async () => {
+  await authStore.logout();
   router.push('/login');
 };
 

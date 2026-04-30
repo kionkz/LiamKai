@@ -4,6 +4,7 @@ namespace App\Http\Requests\Orders;
 
 use App\Models\Order;
 use App\Models\Product;
+use Carbon\Carbon;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
@@ -34,6 +35,7 @@ class UpdateOrderRequest extends FormRequest
         return [
             'notes' => 'nullable|string',
             'order_type' => 'sometimes|in:retail,wholesale',
+            'order_priority' => 'sometimes|in:regular,urgent',
             'fulfillment_type' => 'sometimes|in:delivery,pickup',
             'scheduled_for' => 'sometimes|nullable|date',
             'delivery_address' => 'sometimes|nullable|string|max:255',
@@ -51,6 +53,7 @@ class UpdateOrderRequest extends FormRequest
     {
         $validator->after(function ($validator) {
             $this->validateDeliveryAddress($validator);
+            $this->validateUrgentSchedule($validator);
             $this->validateItemQuantityRules($validator);
 
             if (! $this->filled('order_type')) {
@@ -89,6 +92,24 @@ class UpdateOrderRequest extends FormRequest
                 }
             }
         });
+    }
+
+    private function validateUrgentSchedule(Validator $validator): void
+    {
+        $order = Order::find($this->route('order'));
+        $priority = $this->input('order_priority', $order?->order_priority ?? 'regular');
+
+        if ($priority !== 'urgent' || ! $this->filled('scheduled_for')) {
+            return;
+        }
+
+        $scheduledFor = Carbon::parse($this->input('scheduled_for'), config('app.timezone'));
+        if (! $scheduledFor->isSameDay(now(config('app.timezone')))) {
+            $validator->errors()->add(
+                'scheduled_for',
+                'Rushed / urgent orders must stay scheduled for today.'
+            );
+        }
     }
 
     private function validateDeliveryAddress(Validator $validator): void

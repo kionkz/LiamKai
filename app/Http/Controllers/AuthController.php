@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\LoginAuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -37,18 +38,23 @@ class AuthController extends Controller
         $user = $query->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
+            $this->recordLoginAudit($request, $identifier, $user, 'failed', 'Invalid credentials');
+
             return response()->json([
                 'message' => 'Invalid credentials'
             ], 401);
         }
 
         if ($user->account_status === 'inactive') {
+            $this->recordLoginAudit($request, $identifier, $user, 'blocked', 'Inactive account');
+
             return response()->json([
                 'message' => 'Your account has been deactivated. Please contact an administrator.'
             ], 403);
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
+        $this->recordLoginAudit($request, $identifier, $user, 'success');
 
         return response()->json([
             'token' => $token,
@@ -67,7 +73,11 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        $request->user()->tokens()->delete();
+        $user = $request->user();
+
+        $this->recordLoginAudit($request, $user->username ?? $user->email, $user, 'logout');
+        $user->tokens()->delete();
+
         return response()->json(['message' => 'Logged out successfully']);
     }
 
@@ -193,6 +203,18 @@ class AuthController extends Controller
                 'employee_id'         => $user->employee_id,
                 'must_change_password' => false,
             ],
+        ]);
+    }
+
+    private function recordLoginAudit(Request $request, ?string $identifier, ?User $user, string $event, ?string $reason = null): void
+    {
+        LoginAuditLog::create([
+            'user_id' => $user?->id,
+            'identifier' => $identifier,
+            'event' => $event,
+            'reason' => $reason,
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
         ]);
     }
 }

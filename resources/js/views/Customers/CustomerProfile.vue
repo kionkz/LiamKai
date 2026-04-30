@@ -16,7 +16,7 @@
               {{ saving ? 'Saving...' : 'Save Changes' }}
             </button>
           </template>
-          <button v-else @click="startCustomerEdit" class="btn btn-primary">Edit Customer</button>
+          <button v-else-if="canWriteCustomers" @click="startCustomerEdit" class="btn btn-primary">Edit Customer</button>
         </div>
       </div>
 
@@ -213,12 +213,14 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
+import { useAuthStore } from '../../stores/authStore';
 import { formatPeso } from '../../utils/currency';
 import { getApiErrorMessage } from '../../utils/orderValidation';
 import { resolveOrderUnitPrice } from '../../utils/pricing';
 
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 
 const customer = ref(null);
 const loading = ref(false);
@@ -243,6 +245,8 @@ const orderEditForm = ref({
   items: [],
 });
 
+const canWriteCustomers = computed(() => authStore.can('customers.write'));
+const canEditOrders = computed(() => authStore.can('orders.edit'));
 const orders = computed(() => customer.value?.orders || []);
 const orderLastPage = computed(() => Math.max(1, Math.ceil(orders.value.length / ordersPerPage.value)));
 const paginatedOrders = computed(() => {
@@ -323,6 +327,10 @@ const changeOrderPage = (page) => {
 };
 
 const startCustomerEdit = () => {
+  if (!canWriteCustomers.value) {
+    error.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   editForm.value = {
     name: customer.value.name || '',
     email: customer.value.email || '',
@@ -347,7 +355,7 @@ const fetchCustomer = async () => {
     const response = await api.get(`/customers/${route.params.id}`);
     if (response.data.success) {
       customer.value = response.data.data;
-      if (route.query.edit === '1') {
+      if (route.query.edit === '1' && canWriteCustomers.value) {
         startCustomerEdit();
       }
       if (orderPage.value > orderLastPage.value) orderPage.value = orderLastPage.value;
@@ -362,7 +370,7 @@ const fetchCustomer = async () => {
 };
 
 watch(() => route.query.edit, (value) => {
-  if (value === '1' && customer.value) {
+  if (value === '1' && customer.value && canWriteCustomers.value) {
     startCustomerEdit();
   }
 });
@@ -379,6 +387,10 @@ const loadProducts = async () => {
 };
 
 const saveCustomerEdit = async () => {
+  if (!canWriteCustomers.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   customerEditSubmitted.value = true;
   if (!canSaveCustomer.value) return;
   saving.value = true;
@@ -464,6 +476,7 @@ const normalizeEditItemQuantity = (index) => {
 };
 
 const validateOrderEdit = () => {
+  if (!canEditOrders.value) return 'Access denied. You do not have permission to perform this action.';
   const validItems = orderEditForm.value.items.filter((item) => item.product_id);
 
   if (validItems.length === 0) return 'Add at least one product.';
@@ -483,6 +496,10 @@ const validateOrderEdit = () => {
 };
 
 const saveOrderEdit = async () => {
+  if (!canEditOrders.value) {
+    orderEditError.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   orderEditError.value = validateOrderEdit();
   if (orderEditError.value || !orderEditTarget.value) return;
 

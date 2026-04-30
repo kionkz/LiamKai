@@ -6,9 +6,9 @@
         <span>{{ selectedCustomer ? 'Customer actions are enabled.' : 'Select a row to enable customer actions.' }}</span>
       </div>
       <div class="toolbar-actions">
-        <button @click="showNewCustomerForm = true" class="btn btn-primary">New Customer</button>
+        <button v-if="canWriteCustomers" @click="showNewCustomerForm = true" class="btn btn-primary">New Customer</button>
         <button @click="viewSelectedCustomer" class="btn btn-secondary" :disabled="!selectedCustomer">View</button>
-        <button @click="openEditSelectedCustomer" class="btn btn-secondary" :disabled="!selectedCustomer">Edit</button>
+        <button v-if="canWriteCustomers" @click="openEditSelectedCustomer" class="btn btn-secondary" :disabled="!selectedCustomer">Edit</button>
       </div>
     </div>
 
@@ -61,7 +61,7 @@
         </thead>
         <tbody>
           <tr v-if="customers.length === 0">
-            <td colspan="7" class="no-data">No customers found. Add your first customer!</td>
+            <td colspan="7" class="no-data">No customers found.</td>
           </tr>
           <tr
             v-for="customer in customers"
@@ -162,10 +162,13 @@
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../api';
+import { useAuthStore } from '../../stores/authStore';
 import { formatPeso } from '../../utils/currency';
 import { getApiErrorMessage } from '../../utils/orderValidation';
 
 const router = useRouter();
+const authStore = useAuthStore();
+const canWriteCustomers = computed(() => authStore.can('customers.write'));
 
 const customers = ref([]);
 const loading = ref(false);
@@ -209,6 +212,7 @@ const viewSelectedCustomer = () => {
 };
 
 const openEditSelectedCustomer = () => {
+  if (!canWriteCustomers.value) return;
   if (!selectedCustomer.value) return;
   router.push({ path: `/customers/${selectedCustomer.value.id}`, query: { edit: '1' } });
 };
@@ -256,6 +260,10 @@ const clearSearch = () => {
 };
 
 const saveCustomer = async () => {
+  if (!canWriteCustomers.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   saving.value = true;
   try {
     normalizePhoneField();

@@ -7,7 +7,7 @@
       </div>
 
       <ul class="nav-menu">
-        <li>
+        <li v-if="authStore.hasPermission('dashboard')">
           <router-link to="/" :class="{ active: activeMenu === 'dashboard' }" @click="setActiveMenu('dashboard')">
             <ClipboardList class="menu-icon" :size="18" />
             <span class="tab-label">Operations Dashboard</span>
@@ -25,7 +25,7 @@
             <router-link to="/customers" :class="{ active: activeMenu === 'customer-profile' }" @click="setActiveMenu('customer-profile')">Customers</router-link>
             <router-link to="/orders" :class="{ active: activeMenu === 'orders' }" @click="setActiveMenu('orders')">Sales Orders</router-link>
             <router-link to="/pos" :class="{ active: activeMenu === 'walk-in' }" @click="setActiveMenu('walk-in')">Point of Sale</router-link>
-            <router-link to="/payments" :class="{ active: activeMenu === 'payment-management' }" @click="setActiveMenu('payment-management')">Collections</router-link>
+            <router-link v-if="authStore.hasPermission('payments')" to="/payments" :class="{ active: activeMenu === 'payment-management' }" @click="setActiveMenu('payment-management')">Collections</router-link>
           </div>
         </li>
 
@@ -40,6 +40,7 @@
             <router-link to="/inventory" :class="{ active: activeMenu === 'current-stock' }" @click="setActiveMenu('current-stock')">Stock On Hand</router-link>
             <router-link to="/inventory/categories" :class="{ active: activeMenu === 'inventory-categories' }" @click="setActiveMenu('inventory-categories')">Product Categories</router-link>
             <router-link to="/inventory/movements" :class="{ active: activeMenu === 'stock-movement' }" @click="setActiveMenu('stock-movement')">Inventory Audit</router-link>
+            <router-link v-if="authStore.hasPermission('receiving')" to="/purchasing" :class="{ active: activeMenu === 'receiving' }" @click="setActiveMenu('receiving')">Receiving</router-link>
           </div>
         </li>
 
@@ -52,7 +53,7 @@
           </button>
           <div v-if="purchasingOpen" class="sub-links">
             <router-link to="/purchasing" :class="{ active: activeMenu === 'suppliers-profile' }" @click="setActiveMenu('suppliers-profile')">Purchase Orders</router-link>
-            <router-link to="/reports" :class="{ active: activeMenu === 'sales-report' }" @click="setActiveMenu('sales-report')">Reports & Analytics</router-link>
+            <router-link v-if="authStore.hasPermission('reports')" to="/reports" :class="{ active: activeMenu === 'sales-report' }" @click="setActiveMenu('sales-report')">Reports & Analytics</router-link>
           </div>
         </li>
 
@@ -65,11 +66,16 @@
         </li>
 
         <!-- Employee — admin only -->
-        <li v-if="authStore.hasPermission('employees')">
-          <router-link to="/employees" :class="{ active: activeMenu === 'employees' }" @click="setActiveMenu('employees')">
+        <li v-if="authStore.hasPermission('employees')" class="menu-group">
+          <button class="group-head" :class="{ active: activeMenu === 'employees-group' }" type="button" @click="toggleAndActivate('employee-admin', 'employees-group')">
             <Users class="menu-icon" :size="18" />
-            <span class="tab-label">Employees & Accounts</span>
-          </router-link>
+            <span>Employees & Accounts</span>
+            <span class="group-caret">{{ employeeAdminOpen ? '▾' : '▸' }}</span>
+          </button>
+          <div v-if="employeeAdminOpen" class="sub-links">
+            <router-link to="/employees" :class="{ active: activeMenu === 'employees' }" @click="setActiveMenu('employees')">Employees</router-link>
+            <router-link to="/login-audit-logs" :class="{ active: activeMenu === 'login-audit' }" @click="setActiveMenu('login-audit')">Login Audit</router-link>
+          </div>
         </li>
       </ul>
 
@@ -101,6 +107,9 @@
       </header>
 
       <div class="content-area">
+        <div v-if="accessDeniedMessage" class="access-denied-banner">
+          {{ accessDeniedMessage }}
+        </div>
         <router-view />
       </div>
     </div>
@@ -120,13 +129,16 @@ const currentTime = ref('');
 const customerOrdersOpen = ref(false);
 const inventoryOpen = ref(false);
 const purchasingOpen = ref(false);
+const employeeAdminOpen = ref(false);
 const activeMenu = ref('');
+const accessDeniedMessage = ref('');
 
 const displayName = computed(() => authStore.user?.name || authStore.user?.username || 'User');
 const displayRole = computed(() => authStore.user?.role || 'Owner');
 const isCustomerOrdersRoute = computed(() => route.path.startsWith('/customers') || route.path === '/pos' || route.path.startsWith('/orders') || route.path.startsWith('/payments'));
 const isInventoryRoute = computed(() => route.path.startsWith('/inventory'));
 const isPurchasingRoute = computed(() => route.path.startsWith('/purchasing') || route.path === '/reports');
+const isEmployeeAdminRoute = computed(() => route.path === '/employees' || route.path === '/login-audit-logs');
 const isPurchasingProfileRoute = computed(() => {
   return (
     route.path === '/purchasing' ||
@@ -140,6 +152,7 @@ const closeAllGroups = () => {
   customerOrdersOpen.value = false;
   inventoryOpen.value = false;
   purchasingOpen.value = false;
+  employeeAdminOpen.value = false;
 };
 
 const openOnlyGroup = (group) => {
@@ -154,13 +167,17 @@ const openOnlyGroup = (group) => {
   if (group === 'purchasing') {
     purchasingOpen.value = true;
   }
+  if (group === 'employee-admin') {
+    employeeAdminOpen.value = true;
+  }
 };
 
 const toggleGroup = (group) => {
   const isOpen =
     (group === 'customer' && customerOrdersOpen.value) ||
     (group === 'inventory' && inventoryOpen.value) ||
-    (group === 'purchasing' && purchasingOpen.value);
+    (group === 'purchasing' && purchasingOpen.value) ||
+    (group === 'employee-admin' && employeeAdminOpen.value);
 
   if (isOpen) {
     closeAllGroups();
@@ -226,11 +243,15 @@ const syncActiveMenuByRoute = () => {
     route.path.startsWith('/purchasing/edit') ||
     route.path.startsWith('/purchasing/receive')
   ) {
-    activeMenu.value = 'suppliers-profile';
+    activeMenu.value = authStore.hasPermission('purchasing') ? 'suppliers-profile' : 'receiving';
     return;
   }
   if (route.path === '/employees') {
     activeMenu.value = 'employees';
+    return;
+  }
+  if (route.path === '/login-audit-logs') {
+    activeMenu.value = 'login-audit';
     return;
   }
 
@@ -247,7 +268,11 @@ const syncGroupByRoute = () => {
     return;
   }
   if (isPurchasingRoute.value) {
-    openOnlyGroup('purchasing');
+    openOnlyGroup(authStore.hasPermission('purchasing') ? 'purchasing' : 'inventory');
+    return;
+  }
+  if (isEmployeeAdminRoute.value) {
+    openOnlyGroup('employee-admin');
     return;
   }
 
@@ -272,6 +297,7 @@ const pageTitle = computed(() => {
     'CategoriesView': 'Product Categories',
     'StockMovement': 'Inventory Audit',
     'EmployeeManagement': 'Employees & Accounts',
+    'LoginAuditLog': 'Login Audit',
     'ProfilePage': 'My Profile',
     'ReportsPage': 'Reports & Analytics'
   };
@@ -296,6 +322,7 @@ const pageSummary = computed(() => {
     CategoriesView: 'Create, edit, and maintain the product categories used across inventory and product management.',
     StockMovement: 'Audit every inbound, outbound, defect, and manual stock event.',
     EmployeeManagement: 'Maintain employee records, roles, and user accounts.',
+    LoginAuditLog: 'Audit login attempts, blocked account access, and logout activity.',
     ProfilePage: 'Update account identity and access information.',
     ReportsPage: 'Analyze sales, payments, inventory, and customer performance'
   };
@@ -303,14 +330,17 @@ const pageSummary = computed(() => {
   return summaries[route.name] || 'Monitor daily activity and key business operations.';
 });
 
-const logout = () => {
-  authStore.logout();
+const logout = async () => {
+  await authStore.logout();
   router.push('/login');
 };
 
 onMounted(() => {
   syncGroupByRoute();
   syncActiveMenuByRoute();
+  if (route.query.access_denied === '1') {
+    accessDeniedMessage.value = 'Access denied. You do not have permission to perform this action.';
+  }
 
   setInterval(() => {
     const now = new Date();
@@ -321,6 +351,12 @@ onMounted(() => {
 watch(() => route.path, () => {
   syncGroupByRoute();
   syncActiveMenuByRoute();
+});
+
+watch(() => route.query.access_denied, (value) => {
+  accessDeniedMessage.value = value === '1'
+    ? 'Access denied. You do not have permission to perform this action.'
+    : '';
 });
 </script>
 
@@ -627,6 +663,16 @@ watch(() => route.path, () => {
   min-height: 0;
   padding: 28px 30px;
   overflow-y: auto;
+}
+
+.access-denied-banner {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: #991b1b;
+  font-weight: 800;
 }
 
 @media (max-width: 1024px) and (min-width: 769px) {

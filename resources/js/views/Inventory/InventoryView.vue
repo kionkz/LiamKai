@@ -3,7 +3,7 @@
     <div class="header-section">
       <div class="header-controls">
         <input v-model="searchQuery" type="text" placeholder="Search products..." class="search-box" />
-        <button @click="showAddProductModal = true" class="btn btn-primary">New Product</button>
+        <button v-if="canWriteProducts" @click="showAddProductModal = true" class="btn btn-primary">New Product</button>
       </div>
     </div>
 
@@ -13,7 +13,7 @@
         <span>{{ selectedProduct ? 'Inventory and pricing actions are enabled.' : 'Select a row to enable inventory actions.' }}</span>
       </div>
       <div class="toolbar-actions">
-        <button @click="openStockUpdateSelected" class="btn btn-secondary" :disabled="!selectedProduct">Update Stock</button>
+        <button v-if="canAdjustInventory" @click="openStockUpdateSelected" class="btn btn-secondary" :disabled="!selectedProduct">Update Stock</button>
         <button @click="openDetailsSelected" class="btn btn-secondary" :disabled="!selectedProduct">Product Profile</button>
       </div>
     </div>
@@ -221,42 +221,42 @@
             </div>
             <div class="form-group">
               <label>Product Name</label>
-              <input v-model="profileForm.name" type="text" />
+              <input v-model="profileForm.name" type="text" :readonly="!canWriteProductProfile" :class="{ 'readonly-input': !canWriteProductProfile }" />
             </div>
             <div class="form-group">
               <label>Category</label>
-              <SearchableSelect v-model="profileForm.category_id" :options="inventoryCategoryOptions" placeholder="Select category" />
+              <SearchableSelect v-model="profileForm.category_id" :options="inventoryCategoryOptions" placeholder="Select category" :disabled="!canWriteProductProfile" />
             </div>
             <div class="form-group">
               <label>Unit of Measure</label>
               <div class="choice-group" role="radiogroup" aria-label="Unit of measure">
                 <label class="choice-option" :class="{ active: profileForm.unit_of_measure === 'kg' }">
-                  <input v-model="profileForm.unit_of_measure" type="radio" name="profile-unit-of-measure" value="kg" />
+                  <input v-model="profileForm.unit_of_measure" type="radio" name="profile-unit-of-measure" value="kg" :disabled="!canWriteProductProfile" />
                   <span>kg</span>
                 </label>
                 <label class="choice-option" :class="{ active: profileForm.unit_of_measure === 'Per pack' }">
-                  <input v-model="profileForm.unit_of_measure" type="radio" name="profile-unit-of-measure" value="Per pack" />
+                  <input v-model="profileForm.unit_of_measure" type="radio" name="profile-unit-of-measure" value="Per pack" :disabled="!canWriteProductProfile" />
                   <span>Per pack</span>
                 </label>
               </div>
             </div>
             <div class="form-group">
               <label>Reorder Level</label>
-              <input v-model.number="profileForm.reorder_point" type="number" min="0" step="0.01" @input="profileForm.reorder_point = Math.max(0, profileForm.reorder_point || 0)" />
+              <input v-model.number="profileForm.reorder_point" type="number" min="0" step="0.01" :readonly="!canWriteProductProfile" :class="{ 'readonly-input': !canWriteProductProfile }" @input="profileForm.reorder_point = Math.max(0, profileForm.reorder_point || 0)" />
             </div>
             <div class="form-group">
               <label>Retail Price</label>
-              <input v-model.number="profileForm.retail_price" type="number" min="0" step="0.01" @input="profileForm.retail_price = Math.max(0, profileForm.retail_price || 0)" />
+              <input v-model.number="profileForm.retail_price" type="number" min="0" step="0.01" :readonly="!canWriteProductProfile" :class="{ 'readonly-input': !canWriteProductProfile }" @input="profileForm.retail_price = Math.max(0, profileForm.retail_price || 0)" />
             </div>
             <div class="form-group">
               <label>Discount Amount</label>
-              <input v-model.number="profileForm.discount_amount" type="number" min="0" step="0.01" :max="profileForm.retail_price" @input="profileForm.discount_amount = Math.max(0, profileForm.discount_amount || 0)" />
+              <input v-model.number="profileForm.discount_amount" type="number" min="0" step="0.01" :max="profileForm.retail_price" :readonly="!canWriteProductProfile" :class="{ 'readonly-input': !canWriteProductProfile }" @input="profileForm.discount_amount = Math.max(0, profileForm.discount_amount || 0)" />
             </div>
           </div>
 
           <div class="form-group">
             <label>Description</label>
-            <textarea v-model="profileForm.description" rows="3"></textarea>
+            <textarea v-model="profileForm.description" rows="3" :readonly="!canWriteProductProfile" :class="{ 'readonly-input': !canWriteProductProfile }"></textarea>
           </div>
 
           <div class="pricing-preview">
@@ -300,7 +300,7 @@
           </table>
         </div>
         <div class="modal-footer">
-          <button @click="saveProductProfile" :disabled="savingProfile" class="btn btn-primary">
+          <button v-if="canWriteProductProfile" @click="saveProductProfile" :disabled="savingProfile" class="btn btn-primary">
             {{ savingProfile ? 'Saving...' : 'Save Profile' }}
           </button>
           <button @click="closeDetailsModal" class="btn btn-secondary">Close</button>
@@ -370,10 +370,15 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../api';
 import SearchableSelect from '../../components/SearchableSelect.vue';
+import { useAuthStore } from '../../stores/authStore';
 import { formatPeso } from '../../utils/currency';
 import { calculateDiscountedPriceFromAmount, discountAmountToPercent, normalizeDiscountPercent, resolveDiscountAmount, resolveDiscountedPrice, resolveRetailPrice } from '../../utils/pricing';
 
 const route = useRoute();
+const authStore = useAuthStore();
+const canWriteProducts = computed(() => authStore.can('products.write'));
+const canAdjustInventory = computed(() => authStore.can('inventory.adjust'));
+const canWriteProductProfile = computed(() => authStore.can('inventory.profile.write'));
 const searchQuery = ref('');
 const selectedCategoryId = ref('all');
 const sortBy = ref('product_name');
@@ -558,6 +563,7 @@ const changePage = (page) => {
 };
 
 const openStockUpdateSelected = () => {
+  if (!canAdjustInventory.value) return;
   if (!selectedProduct.value) return;
   stockTarget.value = selectedProduct.value;
   stockActionType.value = 'stock_out';
@@ -591,6 +597,10 @@ const fetchProductBatches = async (productId) => {
 };
 
 const submitStockUpdate = async () => {
+  if (!canAdjustInventory.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   if (!isStockUpdateValid.value) return;
   updating.value = true;
   try {
@@ -636,6 +646,10 @@ const openDetailsSelected = async () => {
 const closeDetailsModal = () => { showDetailsModal.value = false; productDetails.value = null; };
 
 const saveProductProfile = async () => {
+  if (!canWriteProductProfile.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   if (!productDetails.value?.product?.id) return;
   savingProfile.value = true;
   try {
@@ -668,6 +682,10 @@ const closeAddProductModal = () => {
 };
 
 const createProduct = async () => {
+  if (!canWriteProducts.value) {
+    alert('Access denied. You do not have permission to perform this action.');
+    return;
+  }
   if (!newProductForm.value.name || !newProductForm.value.category_id || !newProductForm.value.unit_of_measure) {
     alert('Please fill in all required fields: Name, Category, and Unit of Measure');
     return;
@@ -690,7 +708,7 @@ onMounted(async () => {
   await fetchCategories();
   await fetchProducts(1);
 
-  if (route.query.newProduct === '1') {
+  if (route.query.newProduct === '1' && canWriteProducts.value) {
     showAddProductModal.value = true;
   }
 });

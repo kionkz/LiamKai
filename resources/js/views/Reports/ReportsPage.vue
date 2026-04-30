@@ -4,10 +4,7 @@
       <div class="control-group">
         <label>Report Type:</label>
         <select v-model="selectedReport" data-searchable="off" @change="handleReportTypeChange">
-          <option value="sales">Sales Report</option>
-          <option value="payments">Payment Report</option>
-          <option value="inventory">Inventory Report</option>
-          <option value="customers">Customer Report</option>
+          <option v-for="option in reportTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
         </select>
       </div>
 
@@ -291,9 +288,10 @@ import { computed, ref } from 'vue';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import api from '../../api';
-import { formatPeso } from '../../utils/currency';
+import { useAuthStore } from '../../stores/authStore';
 
-const selectedReport = ref('sales');
+const authStore = useAuthStore();
+const selectedReport = ref(authStore.userRole === 'purchasing' ? 'inventory' : 'sales');
 const reportPeriod = ref('month');
 const fromDate = ref('');
 const toDate = ref('');
@@ -345,6 +343,19 @@ const selectedReportLabel = computed(() => ({
   inventory: 'Inventory Report',
   customers: 'Customer Report',
 }[selectedReport.value]));
+
+const reportTypeOptions = computed(() => {
+  const allReports = [
+    { value: 'sales', label: 'Sales Report' },
+    { value: 'payments', label: 'Payment Report' },
+    { value: 'inventory', label: 'Inventory Report' },
+    { value: 'customers', label: 'Customer Report' },
+  ];
+
+  return authStore.userRole === 'purchasing'
+    ? allReports.filter((option) => option.value === 'inventory')
+    : allReports;
+});
 
 const getReportTitle = () => ({
   today: 'Today',
@@ -398,6 +409,18 @@ const currentSortLabel = computed(() => sortOptions.value.find((option) => optio
 const reportHeading = computed(() => `${selectedReportLabel.value} - ${getReportTitle()}`);
 const reportSubtitle = computed(() => `Sorted by ${currentSortLabel.value} in ${sortDirection.value === 'asc' ? 'ascending' : 'descending'} order.`);
 const generatedAtLabel = computed(() => generatedAt.value ? generatedAt.value.toLocaleString() : 'Not generated');
+
+const toNonNegativeNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, number) : 0;
+};
+
+const toNonNegativeInteger = (value) => Math.round(toNonNegativeNumber(value));
+const integerFormatter = new Intl.NumberFormat('en-PH', { maximumFractionDigits: 0 });
+const formatInteger = (value) => integerFormatter.format(toNonNegativeInteger(value));
+const formatPeso = (value) => `PHP ${formatInteger(value)}`;
+const formatQuantity = (value) => formatInteger(value);
+const formatSku = (value) => value || '-';
 
 const compareValues = (left, right) => {
   if (left == null && right == null) return 0;
@@ -454,11 +477,8 @@ const paginatedPaymentMethods = computed(() => paginateRows(sortedPaymentMethods
 const paginatedInventoryItems = computed(() => paginateRows(sortedInventoryItems.value));
 const paginatedTopCustomers = computed(() => paginateRows(sortedTopCustomers.value));
 
-const formatQuantity = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
-const formatSku = (value) => value || '—';
-
 const buildParams = () => {
-  const params = { period: reportPeriod.value };
+  const params = { period: reportPeriod.value, report_type: selectedReport.value };
 
   if (reportPeriod.value === 'custom' && fromDate.value && toDate.value) {
     params.from_date = fromDate.value;
@@ -469,29 +489,49 @@ const buildParams = () => {
 };
 
 const applyReportData = (reportData) => {
-  totalSales.value = Number(reportData.sales?.totalSales || 0);
-  totalOrders.value = Number(reportData.sales?.totalOrders || 0);
-  avgOrderValue.value = Number(reportData.sales?.avgOrderValue || 0);
-  retailPercentage.value = Number(reportData.sales?.retailPercentage || 0);
-  wholesalePercentage.value = Number(reportData.sales?.wholesalePercentage || 0);
-  salesData.value = reportData.sales?.dailyBreakdown || [];
+  totalSales.value = toNonNegativeInteger(reportData.sales?.totalSales);
+  totalOrders.value = toNonNegativeInteger(reportData.sales?.totalOrders);
+  avgOrderValue.value = toNonNegativeInteger(reportData.sales?.avgOrderValue);
+  retailPercentage.value = toNonNegativeInteger(reportData.sales?.retailPercentage);
+  wholesalePercentage.value = toNonNegativeInteger(reportData.sales?.wholesalePercentage);
+  salesData.value = (reportData.sales?.dailyBreakdown || []).map((row) => ({
+    ...row,
+    orders: toNonNegativeInteger(row.orders),
+    retail: toNonNegativeInteger(row.retail),
+    wholesale: toNonNegativeInteger(row.wholesale),
+  }));
 
-  totalCollected.value = Number(reportData.payments?.totalCollected || 0);
-  totalOutstanding.value = Number(reportData.payments?.totalOutstanding || 0);
-  collectionRate.value = Number(reportData.payments?.collectionRate || 0);
-  paymentMethods.value = reportData.payments?.methods || [];
+  totalCollected.value = toNonNegativeInteger(reportData.payments?.totalCollected);
+  totalOutstanding.value = toNonNegativeInteger(reportData.payments?.totalOutstanding);
+  collectionRate.value = toNonNegativeInteger(reportData.payments?.collectionRate);
+  paymentMethods.value = (reportData.payments?.methods || []).map((method) => ({
+    ...method,
+    transactions: toNonNegativeInteger(method.transactions),
+    amount: toNonNegativeInteger(method.amount),
+    percentage: toNonNegativeInteger(method.percentage),
+  }));
 
-  totalSKUs.value = Number(reportData.inventory?.totalSKUs || 0);
-  currentStockQuantity.value = Number(reportData.inventory?.currentStockQuantity || 0);
-  lowStockCount.value = Number(reportData.inventory?.lowStockCount || 0);
-  totalInventoryValue.value = Number(reportData.inventory?.totalInventoryValue || 0);
-  inventoryItems.value = reportData.inventory?.items || [];
+  totalSKUs.value = toNonNegativeInteger(reportData.inventory?.totalSKUs);
+  currentStockQuantity.value = toNonNegativeInteger(reportData.inventory?.currentStockQuantity);
+  lowStockCount.value = toNonNegativeInteger(reportData.inventory?.lowStockCount);
+  totalInventoryValue.value = toNonNegativeInteger(reportData.inventory?.totalInventoryValue);
+  inventoryItems.value = (reportData.inventory?.items || []).map((item) => ({
+    ...item,
+    quantityOnHand: toNonNegativeInteger(item.quantityOnHand),
+    unitCost: toNonNegativeInteger(item.unitCost),
+    totalInventoryValue: toNonNegativeInteger(item.totalInventoryValue),
+    reorderPoint: toNonNegativeInteger(item.reorderPoint),
+  }));
 
-  totalCustomers.value = Number(reportData.customers?.totalCustomers || 0);
-  newCustomers.value = Number(reportData.customers?.newCustomers || 0);
-  repeatRate.value = Number(reportData.customers?.repeatRate || 0);
-  avgCustomerValue.value = Number(reportData.customers?.avgCustomerValue || 0);
-  topCustomers.value = reportData.customers?.topCustomers || [];
+  totalCustomers.value = toNonNegativeInteger(reportData.customers?.totalCustomers);
+  newCustomers.value = toNonNegativeInteger(reportData.customers?.newCustomers);
+  repeatRate.value = toNonNegativeInteger(reportData.customers?.repeatRate);
+  avgCustomerValue.value = toNonNegativeInteger(reportData.customers?.avgCustomerValue);
+  topCustomers.value = (reportData.customers?.topCustomers || []).map((customer) => ({
+    ...customer,
+    orders: toNonNegativeInteger(customer.orders),
+    spent: toNonNegativeInteger(customer.spent),
+  }));
 };
 
 const resetPreview = () => {
@@ -698,8 +738,8 @@ const exportReport = () => {
     });
   }
 
-  const fileDate = new Date().toISOString().slice(0, 10);
-  doc.save(`liamkai-${selectedReport.value}-report-${fileDate}.pdf`);
+  const fileTimestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  doc.save(`liamkai-${selectedReport.value}-report-${fileTimestamp}.pdf`);
 };
 
 const escapeHtml = (value) => String(value ?? '')

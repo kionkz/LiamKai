@@ -26,7 +26,8 @@ class LogisticsController extends Controller
             'search' => ['sometimes', 'string', 'max:255'],
             'fulfillment_type' => ['sometimes', 'in:delivery,pickup'],
             'status' => ['sometimes', 'in:pending,in_progress,completed'],
-            'sort_by' => ['sometimes', 'in:id,scheduled_for,created_at,total_amount,status'],
+            'priority' => ['sometimes', 'in:all,regular,urgent'],
+            'sort_by' => ['sometimes', 'in:id,scheduled_for,created_at,total_amount,status,priority'],
             'sort_direction' => ['sometimes', 'in:asc,desc'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
@@ -34,6 +35,7 @@ class LogisticsController extends Controller
         $includeAll = filter_var($validated['include_all'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $sortBy = match ($validated['sort_by'] ?? 'scheduled_for') {
             'status' => 'fulfillment_status',
+            'priority' => 'order_priority',
             default => $validated['sort_by'] ?? 'scheduled_for',
         };
         $sortDirection = $validated['sort_direction'] ?? 'asc';
@@ -49,6 +51,10 @@ class LogisticsController extends Controller
 
         if (!empty($validated['fulfillment_type'])) {
             $baseQuery->where('fulfillment_type', $validated['fulfillment_type']);
+        }
+
+        if (!empty($validated['priority']) && $validated['priority'] !== 'all') {
+            $baseQuery->where('order_priority', $validated['priority']);
         }
 
         if (!$includeAll) {
@@ -89,6 +95,7 @@ class LogisticsController extends Controller
 
         $orders = (clone $baseQuery)
             ->with('customer', 'fulfillmentUpdatedBy')
+            ->orderByRaw("CASE WHEN order_priority = 'urgent' AND fulfillment_status != 'completed' THEN 0 ELSE 1 END")
             ->orderByRaw('scheduled_for IS NULL')
             ->orderBy($sortBy, $sortDirection)
             ->orderBy('id', $sortDirection)
@@ -100,6 +107,8 @@ class LogisticsController extends Controller
                 'order_id'         => $order->id,
                 'customer_name'    => $order->customer?->name ?? 'Walk-In Customer',
                 'fulfillment_type' => $order->fulfillment_type,
+                'order_priority'   => $order->order_priority ?? 'regular',
+                'is_urgent'        => ($order->order_priority ?? 'regular') === 'urgent',
                 'delivery_address' => $order->delivery_address,
                 'scheduled_for'    => $order->scheduled_for?->toIso8601String(),
                 'actual_fulfillment_at' => $order->actual_fulfillment_at?->toIso8601String(),
@@ -125,11 +134,13 @@ class LogisticsController extends Controller
                 'include_all' => $includeAll,
                 'sort_by' => $sortBy,
                 'sort_direction' => $sortDirection,
+                'priority' => $validated['priority'] ?? 'all',
                 'counts' => [
                     'total' => (clone $countsQuery)->count(),
                     'pending' => (clone $countsQuery)->where('fulfillment_status', 'pending')->count(),
                     'in_progress' => (clone $countsQuery)->where('fulfillment_status', 'in_progress')->count(),
                     'completed' => (clone $countsQuery)->where('fulfillment_status', 'completed')->count(),
+                    'urgent' => (clone $countsQuery)->where('order_priority', 'urgent')->where('fulfillment_status', '!=', 'completed')->count(),
                 ],
             ],
             'pagination' => [

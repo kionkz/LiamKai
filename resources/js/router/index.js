@@ -24,6 +24,7 @@ const InventoryView = () => import('../views/Inventory/InventoryView.vue');
 const StockMovement = () => import('../views/Inventory/StockMovement.vue');
 const CategoriesView = () => import('../views/Inventory/CategoriesView.vue');
 const EmployeeManagement = () => import('../views/Admin/EmployeeManagement.vue');
+const LoginAuditLog = () => import('../views/Admin/LoginAuditLog.vue');
 const ReportsPage = () => import('../views/Reports/ReportsPage.vue');
 const ProfilePage = () => import('../views/Profile/ProfilePage.vue');
 
@@ -141,6 +142,11 @@ const routes = [
         component: EmployeeManagement,
       },
       {
+        path: 'login-audit-logs',
+        name: 'LoginAuditLog',
+        component: LoginAuditLog,
+      },
+      {
         path: 'profile',
         name: 'ProfilePage',
         component: ProfilePage,
@@ -212,7 +218,8 @@ router.beforeEach((to) => {
     if (module && !canAccess(authStore.userRole, module)) {
       // Avoid redirect loops when target route is already the computed fallback.
       const fallback = authStore.homeRoute || '/login';
-      return fallback === to.path ? '/login' : fallback;
+      if (fallback === to.path) return '/login';
+      return { path: fallback, query: { access_denied: '1' } };
     }
   }
 });

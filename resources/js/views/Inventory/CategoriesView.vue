@@ -5,7 +5,7 @@
         <strong>{{ selectedCategory ? selectedCategory.name : 'No category selected' }}</strong>
         <span>{{ selectedCategory ? 'Category actions are enabled.' : 'Select a category row to edit or delete it.' }}</span>
       </div>
-      <div class="toolbar-actions">
+      <div v-if="canWriteCategories" class="toolbar-actions">
         <button class="btn btn-primary" @click="openCreateModal">New Category</button>
         <button class="btn btn-secondary" :disabled="!selectedCategory" @click="openEditModal">Edit</button>
         <button class="btn btn-danger" :disabled="!selectedCategory" @click="openDeleteModal">Delete</button>
@@ -102,7 +102,10 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import api from '../../api';
+import { useAuthStore } from '../../stores/authStore';
 
+const authStore = useAuthStore();
+const canWriteCategories = computed(() => authStore.can('categories.write'));
 const categories = ref([]);
 const loading = ref(false);
 const saving = ref(false);
@@ -178,12 +181,14 @@ const selectCategory = (category) => {
 };
 
 const openCreateModal = () => {
+  if (!canWriteCategories.value) return;
   editingCategory.value = false;
   form.value = { id: null, name: '', description: '' };
   showForm.value = true;
 };
 
 const openEditModal = () => {
+  if (!canWriteCategories.value) return;
   if (!selectedCategory.value) {
     return;
   }
@@ -204,6 +209,10 @@ const closeForm = () => {
 };
 
 const saveCategory = async () => {
+  if (!canWriteCategories.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   saving.value = true;
   errorMessage.value = '';
   successMessage.value = '';
@@ -234,6 +243,7 @@ const saveCategory = async () => {
 };
 
 const openDeleteModal = () => {
+  if (!canWriteCategories.value) return;
   if (!selectedCategory.value) {
     return;
   }
@@ -242,6 +252,10 @@ const openDeleteModal = () => {
 };
 
 const deleteCategory = async () => {
+  if (!canWriteCategories.value) {
+    errorMessage.value = 'Access denied. You do not have permission to perform this action.';
+    return;
+  }
   if (!selectedCategory.value) {
     return;
   }

@@ -40,6 +40,22 @@
 
         <div class="form-section">
           <h3>Fulfillment Schedule</h3>
+          <div class="form-group">
+            <label>Order Priority *</label>
+            <div class="radio-group priority-options">
+              <label>
+                <input v-model="form.order_priority" type="radio" value="regular" />
+                Regular Order
+              </label>
+              <label class="urgent-option">
+                <input v-model="form.order_priority" type="radio" value="urgent" />
+                Rushed / Urgent Order
+              </label>
+            </div>
+            <p v-if="form.order_priority === 'urgent'" class="priority-note">
+              Urgent orders are scheduled for today. You can adjust the time only.
+            </p>
+          </div>
           <div class="form-grid two-column">
             <div class="form-group">
               <label>Fulfillment Type *</label>
@@ -48,9 +64,19 @@
                 <label><input v-model="form.fulfillment_type" type="radio" value="pickup" /> Pickup</label>
               </div>
             </div>
-            <div class="form-group">
+            <div v-if="form.order_priority === 'regular'" class="form-group">
               <label>Scheduled Date &amp; Time *</label>
               <input v-model="form.scheduled_for" type="datetime-local" :min="nowMin" required />
+            </div>
+            <div v-else class="urgent-schedule-grid">
+              <div class="form-group">
+                <label>Delivery Date *</label>
+                <input :value="todayDateInput" type="date" disabled />
+              </div>
+              <div class="form-group">
+                <label>Delivery Time *</label>
+                <input v-model="urgentTime" type="time" required @input="syncUrgentSchedule" />
+              </div>
             </div>
           </div>
           <div v-if="form.fulfillment_type === 'delivery'" class="form-group">
@@ -180,6 +206,24 @@ const buildDefaultSchedule = () => {
   return local.toISOString().slice(0, 16);
 };
 
+const toLocalDateTimeInput = (date) => {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+};
+
+const todayDateInput = computed(() => toLocalDateTimeInput(new Date()).slice(0, 10));
+
+const buildSameDaySchedule = (timeValue) => {
+  const [hours = '00', minutes = '00'] = String(timeValue || '00:00').split(':');
+  const value = new Date();
+  value.setHours(Number(hours), Number(minutes), 0, 0);
+  return toLocalDateTimeInput(value);
+};
+
+const extractTime = (dateTimeValue) => {
+  return String(dateTimeValue || buildDefaultSchedule()).slice(11, 16) || '00:00';
+};
+
 const nowMin = computed(() => {
   const now = new Date();
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
@@ -200,6 +244,7 @@ const buildEmptyItem = () => ({ product_id: '', quantity: 1, unit_price: 0 });
 const form = ref({
   customer_id: '',
   fulfillment_type: 'delivery',
+  order_priority: 'regular',
   scheduled_for: buildDefaultSchedule(),
   delivery_address: '',
   items: [buildEmptyItem()],
@@ -212,6 +257,7 @@ const loading = ref(false);
 const error = ref('');
 const formError = ref('');
 const submitting = ref(false);
+const urgentTime = ref(extractTime(form.value.scheduled_for));
 
 const customerOptions = computed(() => customers.value.map((customer) => ({
   value: customer.id,
@@ -227,7 +273,23 @@ const customerRuleMessage = computed(() => getCustomerPricingRuleMessage(selecte
 const productOptions = computed(() => products.value.map((product) => ({
   value: product.id,
   label: product.name,
+  metaRight: `${formatProductStock(product)} kg`,
 })));
+
+const getProductStock = (product) => {
+  if (!product) return 0;
+
+  const quantity = Number(product.inventory?.quantity ?? 0);
+  const quantityOnHand = Number(product.inventory?.quantity_on_hand ?? quantity);
+  return Number.isFinite(quantityOnHand) ? Math.max(0, quantityOnHand) : 0;
+};
+
+const formatProductStock = (product) => {
+  const amount = getProductStock(product);
+  return product?.unit_of_measure === 'Per pack'
+    ? Number(amount).toLocaleString(undefined, { maximumFractionDigits: 0 })
+    : Number(amount).toLocaleString(undefined, { maximumFractionDigits: 2 });
+};
 
 const loadFormData = async () => {
   loading.value = true;
@@ -297,11 +359,7 @@ const updateAllPrices = () => {
 
 const getAvailableStock = (productId) => {
   const product = findProduct(productId);
-  if (!product) return 0;
-
-  const quantity = Number(product.inventory?.quantity ?? 0);
-  const quantityOnHand = Number(product.inventory?.quantity_on_hand ?? quantity);
-  return quantityOnHand;
+  return getProductStock(product);
 };
 
 const formatAvailableStock = (productId) => {
@@ -420,6 +478,17 @@ watch(() => form.value.fulfillment_type, (type) => {
   }
 });
 
+const syncUrgentSchedule = () => {
+  form.value.scheduled_for = buildSameDaySchedule(urgentTime.value);
+};
+
+watch(() => form.value.order_priority, (priority) => {
+  if (priority === 'urgent') {
+    urgentTime.value = extractTime(form.value.scheduled_for);
+    syncUrgentSchedule();
+  }
+});
+
 const calculateSubtotal = () => form.value.items.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
 
 const submitOrder = async () => {
@@ -457,6 +526,14 @@ const submitOrder = async () => {
     return;
   }
 
+  if (form.value.order_priority === 'urgent') {
+    syncUrgentSchedule();
+    if (form.value.scheduled_for.slice(0, 10) !== todayDateInput.value) {
+      formError.value = 'Rushed / urgent orders must be scheduled for today.';
+      return;
+    }
+  }
+
   if (new Date(form.value.scheduled_for) < new Date()) {
     formError.value = 'The scheduled date and time cannot be in the past.';
     return;
@@ -472,6 +549,7 @@ const submitOrder = async () => {
     const payload = {
       customer_id: form.value.customer_id,
       fulfillment_type: form.value.fulfillment_type,
+      order_priority: form.value.order_priority,
       scheduled_for: form.value.scheduled_for,
       delivery_address: form.value.fulfillment_type === 'delivery' ? form.value.delivery_address : null,
       notes: form.value.notes,
@@ -586,6 +664,7 @@ onMounted(() => {
   margin-bottom: 30px;
   padding-bottom: 20px;
   border-bottom: 1px solid #e0e0e0;
+  overflow: visible;
 }
 
 .form-section h3,
@@ -619,7 +698,7 @@ onMounted(() => {
   color: #344054;
 }
 
-.form-group input,
+.form-group input:not([type='checkbox']):not([type='radio']),
 .form-group textarea {
   width: 100%;
   padding: 12px 14px;
@@ -675,6 +754,62 @@ onMounted(() => {
   font-weight: 500;
 }
 
+.radio-group input[type='radio'] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.priority-options {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.priority-options label {
+  min-height: 40px;
+  min-width: 0;
+  width: auto;
+  justify-content: flex-start;
+  padding: 9px 14px;
+  white-space: nowrap;
+  border: 1px solid #d8dde3;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.priority-options label:has(input:checked) {
+  border-color: #e57c2a;
+  background: #fff7ed;
+  color: #9a3412;
+  font-weight: 800;
+}
+
+.priority-options label.urgent-option:has(input:checked) {
+  border-color: #fecaca;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.priority-note {
+  margin: 0;
+  width: fit-content;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: #991b1b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.urgent-schedule-grid {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(120px, 1fr);
+  gap: 12px;
+}
+
 .products-header {
   display: flex;
   align-items: center;
@@ -694,6 +829,8 @@ onMounted(() => {
 }
 
 .product-item {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(220px, 2.5fr) minmax(190px, 210px) minmax(210px, 1.6fr) minmax(120px, 140px) 60px;
   gap: 0;
@@ -705,6 +842,10 @@ onMounted(() => {
   background: #ffffff;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
   overflow: visible;
+}
+
+.product-item:focus-within {
+  z-index: 40;
 }
 
 .product-field {
@@ -732,7 +873,15 @@ onMounted(() => {
   background: #f8faff;
   position: relative;
   overflow: visible;
-  z-index: 2;
+  z-index: 3;
+}
+
+.product-field-main :deep(.searchable-select.open) {
+  z-index: 60;
+}
+
+.product-field-main :deep(.dropdown-panel) {
+  z-index: 70;
 }
 
 .product-field-subtotal {
@@ -972,6 +1121,17 @@ onMounted(() => {
   }
 
   .form-actions .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .priority-options {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .priority-options label {
     width: 100%;
   }
 }
