@@ -1,0 +1,263 @@
+@startuml LiamKai Use Case Diagram
+
+' ─────────────────────────────────────────────
+'  SKIN / STYLE
+' ─────────────────────────────────────────────
+skinparam actorStyle awesome
+skinparam packageStyle rectangle
+skinparam usecaseFontSize 11
+skinparam actorFontSize 12
+skinparam arrowFontSize 10
+skinparam packageFontSize 13
+skinparam defaultFontName Arial
+skinparam roundcorner 8
+skinparam shadowing false
+
+left to right direction
+
+' ─────────────────────────────────────────────
+'  ACTORS
+' ─────────────────────────────────────────────
+actor "Admin / Manager"       as Admin       #LightBlue
+actor "Sales Employee"        as Sales       #LightGreen
+actor "Delivery Employee"     as Delivery    #LightYellow
+actor "Inventory Employee"    as InvStaff    #LightSalmon
+actor "Purchasing Employee"   as Purchasing  #Plum
+
+' Generic "All Users" inherits upward
+actor "All Users"             as AllUsers    #WhiteSmoke
+
+Admin      --|> AllUsers
+Sales      --|> AllUsers
+Delivery   --|> AllUsers
+InvStaff   --|> AllUsers
+Purchasing --|> AllUsers
+
+' ─────────────────────────────────────────────
+'  MODULE: USER & AUTHENTICATION
+' ─────────────────────────────────────────────
+rectangle "User & Authentication Module" {
+  usecase "Log In"                              as UC_Login
+  usecase "Validate Credentials"                as UC_ValidateCred
+  usecase "Force Change Password\non First Login" as UC_ForceChangePwd
+  usecase "Log Out"                             as UC_Logout
+  usecase "View My Profile"                     as UC_ViewProfile
+  usecase "Update My Profile"                   as UC_UpdateProfile
+  usecase "Change Login Credentials"            as UC_ChangeCredentials
+}
+
+AllUsers --> UC_Login
+AllUsers --> UC_Logout
+AllUsers --> UC_ViewProfile
+AllUsers --> UC_UpdateProfile
+
+UC_Login          ..> UC_ValidateCred      : <<include>>
+UC_Login          ..> UC_ForceChangePwd    : <<extend>>
+UC_UpdateProfile  ..> UC_ChangeCredentials : <<extend>>
+
+' ─────────────────────────────────────────────
+'  MODULE: CUSTOMER ORDER MANAGER
+' ─────────────────────────────────────────────
+rectangle "Customer Order Manager" {
+  usecase "Create Customer Order"      as UC_CreateOrder
+  usecase "Process POS Transaction"    as UC_POS
+  usecase "View Order History"         as UC_ViewOrders
+  usecase "View Order Details"         as UC_ViewOrderDetail
+  usecase "Update Order Status"        as UC_UpdateOrderStatus
+  usecase "Cancel Order"               as UC_CancelOrder
+  usecase "Set / Update Order Priority" as UC_OrderPriority
+  usecase "Manage Customer Profile"    as UC_ManageCustomer
+  usecase "View Customer List"         as UC_ViewCustomers
+  usecase "Process Payment"            as UC_ProcessPayment
+  usecase "View Payment Management"    as UC_PaymentMgmt
+  usecase "Add Payment"                as UC_AddPayment
+  usecase "View Payment History"       as UC_PaymentHistory
+}
+
+Admin   --> UC_CreateOrder
+Sales   --> UC_CreateOrder
+Admin   --> UC_POS
+Sales   --> UC_POS
+Admin   --> UC_ViewOrders
+Sales   --> UC_ViewOrders
+Admin   --> UC_UpdateOrderStatus
+Sales   --> UC_UpdateOrderStatus
+Admin   --> UC_CancelOrder
+Admin   --> UC_OrderPriority
+Sales   --> UC_OrderPriority
+Admin   --> UC_ManageCustomer
+Sales   --> UC_ManageCustomer
+Admin   --> UC_ViewCustomers
+Sales   --> UC_ViewCustomers
+Admin   --> UC_PaymentMgmt
+Admin   --> UC_AddPayment
+Admin   --> UC_PaymentHistory
+Admin   --> UC_ViewOrderDetail
+Sales   --> UC_ViewOrderDetail
+
+UC_ViewOrders       ..> UC_ViewOrderDetail  : <<extend>>
+UC_CreateOrder      ..> UC_ProcessPayment   : <<extend>>
+UC_POS              ..> UC_ProcessPayment   : <<include>>
+UC_AddPayment       ..> UC_ProcessPayment   : <<include>>
+
+' ─────────────────────────────────────────────
+'  MODULE: LOGISTICS & DELIVERY
+' ─────────────────────────────────────────────
+rectangle "Logistics & Delivery Module" {
+  usecase "View Delivery Schedule"     as UC_DeliveryList
+  usecase "View Delivery Details"      as UC_DeliveryDetails
+  usecase "Update Delivery Status"     as UC_UpdateDelivery
+  usecase "Create / Schedule Delivery" as UC_CreateDelivery
+  usecase "View Logistics Orders"      as UC_LogisticsOrders
+}
+
+Admin    --> UC_DeliveryList
+Delivery --> UC_DeliveryList
+Admin    --> UC_DeliveryDetails
+Delivery --> UC_DeliveryDetails
+Admin    --> UC_UpdateDelivery
+Delivery --> UC_UpdateDelivery
+Admin    --> UC_CreateDelivery
+Admin    --> UC_LogisticsOrders
+Delivery --> UC_LogisticsOrders
+
+UC_DeliveryList ..> UC_DeliveryDetails : <<extend>>
+
+' ─────────────────────────────────────────────
+'  MODULE: PURCHASING & SUPPLIERS
+' ─────────────────────────────────────────────
+rectangle "Purchasing & Suppliers Manager" {
+  usecase "Create Purchase Order"        as UC_CreatePO
+  usecase "View Purchase Orders"         as UC_ViewPOs
+  usecase "Edit Purchase Order"          as UC_EditPO
+  usecase "Update Purchase Order Status" as UC_UpdatePOStatus
+  usecase "Delete Purchase Order"        as UC_DeletePO
+  usecase "Record Product Receipt"       as UC_ReceivePO
+  usecase "View Receiving Report"        as UC_ViewReceiving
+  usecase "Manage Supplier Profile"      as UC_ManageSupplier
+  usecase "View Supplier Details"        as UC_ViewSupplier
+  usecase "Generate Business Report"     as UC_GenerateReport
+  usecase "Record Losses"                as UC_RecordLosses
+}
+
+Admin      --> UC_CreatePO
+Purchasing --> UC_CreatePO
+Admin      --> UC_ViewPOs
+Purchasing --> UC_ViewPOs
+InvStaff   --> UC_ViewPOs
+Admin      --> UC_EditPO
+Purchasing --> UC_EditPO
+Admin      --> UC_UpdatePOStatus
+Purchasing --> UC_UpdatePOStatus
+Admin      --> UC_DeletePO
+Admin      --> UC_ReceivePO
+InvStaff   --> UC_ReceivePO
+Admin      --> UC_ManageSupplier
+Purchasing --> UC_ManageSupplier
+Purchasing --> UC_ViewSupplier
+Admin      --> UC_ViewSupplier
+Admin      --> UC_GenerateReport
+Purchasing --> UC_GenerateReport
+Admin      --> UC_RecordLosses
+InvStaff   --> UC_RecordLosses
+
+UC_CreatePO  ..> UC_ManageSupplier  : <<include>>
+UC_ReceivePO ..> UC_ViewReceiving   : <<include>>
+UC_ViewPOs   ..> UC_ViewReceiving   : <<extend>>
+
+' ─────────────────────────────────────────────
+'  MODULE: INVENTORY
+' ─────────────────────────────────────────────
+rectangle "Inventory Module" {
+  usecase "View All Inventory"           as UC_ViewInventory
+  usecase "View Inventory Details"       as UC_ViewInvDetail
+  usecase "View Low Stock Alerts"        as UC_LowStock
+  usecase "Monitor Stock Levels"         as UC_MonitorStock
+  usecase "Manage Product Catalog"       as UC_ManageProducts
+  usecase "View Product Details"         as UC_ViewProduct
+  usecase "View Product Profile"         as UC_ProductProfile
+  usecase "Manage Category"              as UC_ManageCategory
+  usecase "View Stock Movements"         as UC_StockMovements
+  usecase "Adjust Inventory"             as UC_AdjustInventory
+  usecase "Select Reason for Adjustment" as UC_AdjReason
+  usecase "Select Batch for Adjustment"  as UC_AdjBatch
+  usecase "Edit Product Details"         as UC_EditProduct
+  usecase "Edit Pricing"                 as UC_EditPricing
+  usecase "Edit Discounted Amount"       as UC_EditDiscount
+  usecase "Add Unit of Measure"          as UC_AddUOM
+}
+
+Admin      --> UC_ViewInventory
+InvStaff   --> UC_ViewInventory
+Purchasing --> UC_ViewInventory
+Admin      --> UC_MonitorStock
+InvStaff   --> UC_MonitorStock
+Admin      --> UC_ManageProducts
+InvStaff   --> UC_ManageProducts
+Purchasing --> UC_ManageProducts
+Admin      --> UC_ManageCategory
+InvStaff   --> UC_ManageCategory
+Admin      --> UC_StockMovements
+InvStaff   --> UC_StockMovements
+Purchasing --> UC_StockMovements
+Admin      --> UC_AdjustInventory
+InvStaff   --> UC_AdjustInventory
+Admin      --> UC_EditProduct
+Admin      --> UC_EditPricing
+Admin      --> UC_EditDiscount
+Admin      --> UC_AddUOM
+
+UC_ViewInventory   ..> UC_ViewInvDetail    : <<extend>>
+UC_MonitorStock    ..> UC_LowStock         : <<extend>>
+UC_AdjustInventory ..> UC_AdjReason        : <<include>>
+UC_AdjustInventory ..> UC_AdjBatch         : <<include>>
+UC_ManageProducts  ..> UC_ViewProduct      : <<include>>
+UC_ViewProduct     ..> UC_ProductProfile   : <<include>>
+UC_EditProduct     ..> UC_EditPricing      : <<extend>>
+UC_EditPricing     ..> UC_EditDiscount     : <<extend>>
+
+' ─────────────────────────────────────────────
+'  MODULE: ADMINISTRATION
+' ─────────────────────────────────────────────
+rectangle "Administration Module\n(Admin / Manager Only)" {
+  usecase "View Dashboard Summary"             as UC_Dashboard
+  usecase "View Analytics"                     as UC_Analytics
+  usecase "Manage Employee Records"            as UC_ManageEmployee
+  usecase "Create Employee Account"            as UC_CreateAccount
+  usecase "Reset Employee Login Credentials"   as UC_ResetCreds
+  usecase "Activate / Deactivate Employee Account" as UC_ToggleAccount
+  usecase "Assign Roles & Permissions"         as UC_AssignRoles
+  usecase "Revoke Employee Login Account"      as UC_RevokeAccount
+  usecase "Manage Categories (Admin)"          as UC_AdminCategories
+  usecase "Manage Products & Pricing (Admin)"  as UC_AdminProducts
+  usecase "Generate Business Reports"          as UC_AdminReports
+  usecase "View Audit Logs"                    as UC_AuditLogs
+  usecase "Search / Filter Audit Logs"         as UC_SearchAudit
+  usecase "Refresh Login Audit Log"            as UC_RefreshAudit
+  usecase "Export Audit Logs"                  as UC_ExportAudit
+}
+
+Admin --> UC_Dashboard
+Admin --> UC_Analytics
+Admin --> UC_ManageEmployee
+Admin --> UC_CreateAccount
+Admin --> UC_ResetCreds
+Admin --> UC_ToggleAccount
+Admin --> UC_RevokeAccount
+Admin --> UC_AdminCategories
+Admin --> UC_AdminProducts
+Admin --> UC_AdminReports
+Admin --> UC_AuditLogs
+
+UC_Dashboard         ..> UC_Analytics          : <<include>>
+UC_AdminReports      ..> UC_Analytics          : <<include>>
+UC_CreateAccount     ..> UC_AssignRoles        : <<include>>
+UC_ManageEmployee    ..> UC_ToggleAccount       : <<extend>>
+UC_ManageEmployee    ..> UC_CreateAccount       : <<extend>>
+UC_ManageEmployee    ..> UC_ResetCreds          : <<extend>>
+UC_RevokeAccount     ..> UC_ToggleAccount       : <<extend>>
+UC_AuditLogs         ..> UC_SearchAudit         : <<extend>>
+UC_AuditLogs         ..> UC_RefreshAudit        : <<extend>>
+UC_AuditLogs         ..> UC_ExportAudit         : <<extend>>
+
+@enduml
