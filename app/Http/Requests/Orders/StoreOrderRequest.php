@@ -47,8 +47,8 @@ class StoreOrderRequest extends FormRequest
             $priority = $this->input('order_priority', 'regular');
 
             if ($priority === 'urgent' && $this->filled('scheduled_for')) {
-                $scheduledFor = Carbon::parse($this->input('scheduled_for'));
-                if (! $scheduledFor->isSameDay(now())) {
+                $scheduledFor = Carbon::parse($this->input('scheduled_for'), config('app.timezone'));
+                if (! $scheduledFor->isSameDay(now(config('app.timezone')))) {
                     $validator->errors()->add(
                         'scheduled_for',
                         'Rushed / urgent orders must be scheduled for today.'

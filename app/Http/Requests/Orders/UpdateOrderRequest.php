@@ -103,8 +103,8 @@ class UpdateOrderRequest extends FormRequest
             return;
         }
 
-        $scheduledFor = Carbon::parse($this->input('scheduled_for'));
-        if (! $scheduledFor->isSameDay(now())) {
+        $scheduledFor = Carbon::parse($this->input('scheduled_for'), config('app.timezone'));
+        if (! $scheduledFor->isSameDay(now(config('app.timezone')))) {
             $validator->errors()->add(
                 'scheduled_for',
                 'Rushed / urgent orders must stay scheduled for today.'

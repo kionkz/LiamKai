@@ -43,11 +43,11 @@
           <div class="form-group">
             <label>Order Priority *</label>
             <div class="radio-group priority-options">
-              <label :class="{ urgent: form.order_priority === 'urgent' }">
+              <label>
                 <input v-model="form.order_priority" type="radio" value="regular" />
                 Regular Order
               </label>
-              <label :class="{ urgent: form.order_priority === 'urgent' }">
+              <label class="urgent-option">
                 <input v-model="form.order_priority" type="radio" value="urgent" />
                 Rushed / Urgent Order
               </label>
@@ -698,7 +698,7 @@ onMounted(() => {
   color: #344054;
 }
 
-.form-group input,
+.form-group input:not([type='checkbox']):not([type='radio']),
 .form-group textarea {
   width: 100%;
   padding: 12px 14px;
@@ -754,12 +754,30 @@ onMounted(() => {
   font-weight: 500;
 }
 
+.radio-group input[type='radio'] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.priority-options {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .priority-options label {
   min-height: 40px;
-  padding: 9px 12px;
+  min-width: 0;
+  width: auto;
+  justify-content: flex-start;
+  padding: 9px 14px;
+  white-space: nowrap;
   border: 1px solid #d8dde3;
   border-radius: 8px;
   background: #fff;
+  cursor: pointer;
 }
 
 .priority-options label:has(input:checked) {
@@ -769,7 +787,7 @@ onMounted(() => {
   font-weight: 800;
 }
 
-.priority-options label.urgent:has(input[value="urgent"]:checked) {
+.priority-options label.urgent-option:has(input:checked) {
   border-color: #fecaca;
   background: #fee2e2;
   color: #b91c1c;
@@ -1103,6 +1121,17 @@ onMounted(() => {
   }
 
   .form-actions .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .priority-options {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .priority-options label {
     width: 100%;
   }
 }

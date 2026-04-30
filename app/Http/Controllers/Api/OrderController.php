@@ -111,7 +111,7 @@ class OrderController extends Controller
             $orderPriority = $validated['order_priority'] ?? 'regular';
             $scheduledFor = $orderPriority === 'urgent'
                 ? $this->sameDaySchedule($validated['scheduled_for'])
-                : $validated['scheduled_for'];
+                : $this->parseOrderSchedule($validated['scheduled_for']);
             $deliveryAddress = $fulfillmentType === 'delivery'
                 ? ($validated['delivery_address'] ?? $customer->address ?? 'No address provided')
                 : null;
@@ -403,13 +403,15 @@ class OrderController extends Controller
             }
 
             $requestedPriority = $validated['order_priority'] ?? $order->order_priority ?? 'regular';
-            if ($requestedPriority === 'urgent' && array_key_exists('scheduled_for', $validated) && $validated['scheduled_for']) {
-                $validated['scheduled_for'] = $this->sameDaySchedule($validated['scheduled_for']);
+            if (array_key_exists('scheduled_for', $validated) && $validated['scheduled_for']) {
+                $validated['scheduled_for'] = $requestedPriority === 'urgent'
+                    ? $this->sameDaySchedule($validated['scheduled_for'])
+                    : $this->parseOrderSchedule($validated['scheduled_for']);
             }
 
             if (array_key_exists('scheduled_for', $validated)) {
                 $validated['delivery_date'] = $validated['scheduled_for']
-                    ? date('Y-m-d', strtotime((string) $validated['scheduled_for']))
+                    ? $validated['scheduled_for']->toDateString()
                     : null;
             }
 
@@ -581,13 +583,19 @@ class OrderController extends Controller
 
     private function sameDaySchedule(string $scheduledFor): Carbon
     {
-        $requested = Carbon::parse($scheduledFor);
-        return now()
+        $requested = $this->parseOrderSchedule($scheduledFor);
+
+        return now(config('app.timezone'))
             ->setTime(
                 (int) $requested->format('H'),
                 (int) $requested->format('i'),
                 0
             );
+    }
+
+    private function parseOrderSchedule(string $scheduledFor): Carbon
+    {
+        return Carbon::parse($scheduledFor, config('app.timezone'));
     }
 
     private function resolveOrderStatus(Order $order): string
